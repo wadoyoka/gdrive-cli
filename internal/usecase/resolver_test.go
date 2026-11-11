@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
@@ -19,8 +20,8 @@ func mustPath(t *testing.T, s string) domain.RemotePath {
 	return p
 }
 
-func newTestResolver() (*Resolver, *fakeDrive, *fakeState) {
-	d := newFakeDrive()
+func newTestResolver(t *testing.T) (*Resolver, *fakeDrive, *fakeState) {
+	d := newFakeDrive(t)
 	s := &fakeState{}
 	return NewResolver(d, s, &fakeLocker{}), d, s
 }
@@ -30,7 +31,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("初めてならルートを作り、ID を保存する", func(t *testing.T) {
 		// Arrange
-		r, d, s := newTestResolver()
+		r, d, s := newTestResolver(t)
 
 		// Act
 		root, err := r.Root(ctx)
@@ -45,7 +46,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("Root は結果を覚えておく", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 
 		// Act
 		_, _ = r.Root(ctx)
@@ -59,7 +60,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("保存した ID のルートを使う", func(t *testing.T) {
 		// Arrange
-		r, d, s := newTestResolver()
+		r, d, s := newTestResolver(t)
 		saved := d.addRootFolder()
 		s.id = saved.ID
 
@@ -77,7 +78,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("保存した ID がゴミ箱なら KindSetup で、新しく作らない", func(t *testing.T) {
 		// Arrange
-		r, d, s := newTestResolver()
+		r, d, s := newTestResolver(t)
 		saved := d.addRootFolder()
 		d.setTrashed(saved.ID, true)
 		s.id = saved.ID
@@ -96,7 +97,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("ID がなく、ゴミ箱のルートしかなければ KindSetup", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		d.setTrashed(d.addRootFolder().ID, true)
 
 		// Act
@@ -113,7 +114,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("ルートが 2 つなら古いほうを選び、警告を出す", func(t *testing.T) {
 		// Arrange
-		r, d, s := newTestResolver()
+		r, d, s := newTestResolver(t)
 		older := d.addRootFolder()
 		newer := d.addRootFolder()
 
@@ -132,7 +133,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("保存した ID が消えていたら探し直す", func(t *testing.T) {
 		// Arrange
-		r, d, s := newTestResolver()
+		r, d, s := newTestResolver(t)
 		gone := d.addRootFolder()
 		d.remove(gone.ID)
 		s.id = gone.ID
@@ -149,7 +150,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("Resolve はパスを埋めて返す", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
 		a := d.addFolder(root.ID, "a")
 		f := d.addFile(a.ID, "x.txt", []byte("hi"))
@@ -169,7 +170,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("ないパスは KindNotFound で、文言にパスを含む", func(t *testing.T) {
 		// Arrange
-		r, _, _ := newTestResolver()
+		r, _, _ := newTestResolver(t)
 
 		// Act
 		_, err := r.Resolve(ctx, mustPath(t, "/nothing/here"))
@@ -182,7 +183,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("途中がファイルなら KindNotFound で、フォルダではないと伝える", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
 		d.addFile(root.ID, "f", nil)
 
@@ -197,7 +198,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("同じ名前が 2 つなら KindAmbiguous で、詳細が 2 行", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
 		d.addFolder(root.ID, "dup")
 		d.addFolder(root.ID, "dup")
@@ -217,7 +218,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("EnsureFolder は足りない分だけ作る", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
 		d.addFolder(root.ID, "a")
 
@@ -240,7 +241,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("EnsureFolder は途中のファイルで KindConflict", func(t *testing.T) {
 		// Arrange
-		r, d, _ := newTestResolver()
+		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
 		d.addFile(root.ID, "f", nil)
 
@@ -254,10 +255,71 @@ func TestResolver(t *testing.T) {
 	})
 }
 
+// lockWritesState は、ロックを取るとき、ほかのプロセスが先に終えた状況（state に ID が入る）を作る。
+type lockWritesState struct {
+	state *fakeState
+	id    string
+}
+
+func (l *lockWritesState) Lock(context.Context) (func(), error) {
+	l.state.id = l.id
+	return func() {}, nil
+}
+
+func TestResolverRace(t *testing.T) {
+	t.Run("ロックを待つ間にほかが保存していたら、探さず作らずそれを使う", func(t *testing.T) {
+		// Arrange
+		d := newFakeDrive(t)
+		s := &fakeState{}
+		other := d.addRootFolder()
+		r := NewResolver(d, s, &lockWritesState{state: s, id: other.ID})
+
+		// Act
+		root, err := r.Root(context.Background())
+
+		// Assert
+		if err != nil || root.ID != other.ID {
+			t.Fatalf("root=%+v err=%v", root, err)
+		}
+		if d.callCount("CreateRootFolder") != 0 || d.callCount("FindRootFolders") != 0 {
+			t.Errorf("create=%d find=%d", d.callCount("CreateRootFolder"), d.callCount("FindRootFolders"))
+		}
+	})
+
+	t.Run("複数の goroutine から Resolve しても競合しない", func(t *testing.T) {
+		// Arrange
+		r, d, _ := newTestResolver(t)
+		root, _ := r.Root(context.Background())
+		d.addFolder(root.ID, "a")
+		var wg sync.WaitGroup
+		errs := make(chan error, 8)
+
+		// Act
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := r.Resolve(context.Background(), mustPath(t, "/a"))
+				_ = r.Warnings()
+				errs <- err
+			}()
+		}
+		wg.Wait()
+		close(errs)
+
+		// Assert
+		for err := range errs {
+			if err != nil {
+				t.Error(err)
+			}
+		}
+	})
+}
+
 func TestRemote(t *testing.T) {
 	t.Run("Connect は Drive と Resolver を返す", func(t *testing.T) {
 		// Arrange
-		d := newFakeDrive()
+		d := newFakeDrive(t)
 		remote := Remote{
 			Open:   func(context.Context) (Drive, error) { return d, nil },
 			State:  &fakeState{},

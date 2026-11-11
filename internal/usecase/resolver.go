@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
@@ -12,9 +14,11 @@ const rootInTrashMessage = "ルートフォルダ（gdrive-cli）がゴミ箱に
 
 // Resolver は、ルートフォルダを見つけ、パスを項目に解決する。
 type Resolver struct {
-	drive    Drive
-	state    StateStore
-	locker   Locker
+	drive  Drive
+	state  StateStore
+	locker Locker
+
+	mu       sync.Mutex // root と warnings を守る。Drive の呼び出しやロックの間は持たない
 	root     *domain.Entry
 	warnings []string
 }
@@ -25,42 +29,63 @@ func NewResolver(d Drive, s StateStore, l Locker) *Resolver {
 }
 
 // Warnings は、Root が見つけた注意（ルートが複数あったときなど）を返す。
-func (r *Resolver) Warnings() []string { return r.warnings }
+func (r *Resolver) Warnings() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.warnings)
+}
 
 // Root は、ルートフォルダを返す。最初の結果を覚えておく。
+// 見つからなければロックを取って探し、なければ作る。
+// 内部でファイルロックを取るので、呼び出し側が Locker のロックを持ったまま呼んではいけない（flock は入れ子にできず、止まる）。
 func (r *Resolver) Root(ctx context.Context) (domain.Entry, error) {
-	if r.root != nil {
-		return *r.root, nil
+	r.mu.Lock()
+	cached := r.root
+	r.mu.Unlock()
+	if cached != nil {
+		return *cached, nil
 	}
 	e, err := r.findRoot(ctx)
 	if err != nil {
 		return domain.Entry{}, err
 	}
 	e.Path = domain.RootPath().String()
-	r.root = &e
-	return e, nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.root == nil {
+		r.root = &e
+	}
+	return *r.root, nil
 }
 
 func (r *Resolver) findRoot(ctx context.Context) (domain.Entry, error) {
-	id, err := r.state.RootFolderID()
-	if err != nil {
-		return domain.Entry{}, err
-	}
-	if id != "" {
-		e, err := r.drive.Get(ctx, id)
-		switch {
-		case err == nil:
-			if e.InTrash {
-				return domain.Entry{}, domain.Errorf(domain.KindSetup, rootInTrashMessage)
-			}
-			if e.Type == domain.TypeFolder {
-				return e, nil
-			}
-		case domain.KindOf(err) != domain.KindNotFound:
-			return domain.Entry{}, err
-		}
+	if e, ok, err := r.savedRoot(ctx); err != nil || ok {
+		return e, err
 	}
 	return r.discoverRoot(ctx)
+}
+
+// savedRoot は、state に保存した ID のルートを返す。ID がないか、Drive 上から消えていれば ok=false。
+func (r *Resolver) savedRoot(ctx context.Context) (e domain.Entry, ok bool, err error) {
+	id, err := r.state.RootFolderID()
+	if err != nil {
+		return domain.Entry{}, false, err
+	}
+	if id == "" {
+		return domain.Entry{}, false, nil
+	}
+	e, err = r.drive.Get(ctx, id)
+	switch {
+	case err == nil:
+		if e.InTrash {
+			return domain.Entry{}, false, domain.Errorf(domain.KindSetup, rootInTrashMessage)
+		}
+		return e, e.Type == domain.TypeFolder, nil
+	case domain.KindOf(err) == domain.KindNotFound:
+		return domain.Entry{}, false, nil
+	default:
+		return domain.Entry{}, false, err
+	}
 }
 
 func (r *Resolver) discoverRoot(ctx context.Context) (domain.Entry, error) {
@@ -69,6 +94,11 @@ func (r *Resolver) discoverRoot(ctx context.Context) (domain.Entry, error) {
 		return domain.Entry{}, err
 	}
 	defer unlock()
+
+	// ロックを待つ間に、ほかのプロセスが作って保存したかもしれない。Drive の一覧は遅れることがあるので、先に state を読み直す。
+	if e, ok, err := r.savedRoot(ctx); err != nil || ok {
+		return e, err
+	}
 
 	found, err := r.drive.FindRootFolders(ctx)
 	if err != nil {
@@ -96,11 +126,13 @@ func (r *Resolver) discoverRoot(ctx context.Context) (domain.Entry, error) {
 				root = e
 			}
 		}
+		r.mu.Lock()
 		for _, e := range live {
 			if e.ID != root.ID {
 				r.warnings = append(r.warnings, fmt.Sprintf("ルートフォルダ（gdrive-cli）が複数あります。古いもの（%s）を使い、%s は使いません: %s", root.ID, e.ID, e.WebViewLink))
 			}
 		}
+		r.mu.Unlock()
 	}
 	if err := r.state.SetRootFolderID(root.ID); err != nil {
 		return domain.Entry{}, err
@@ -162,6 +194,7 @@ func childPath(parentPath, name string) string {
 }
 
 // EnsureFolder は、パスのフォルダを（途中も含めて）なければ作る。作ったパスも返す。
+// 内部でファイルロックを取るので、呼び出し側が Locker のロックを持ったまま呼んではいけない（flock は入れ子にできず、止まる）。
 func (r *Resolver) EnsureFolder(ctx context.Context, p domain.RemotePath) (domain.Entry, []domain.RemotePath, error) {
 	cur, err := r.Root(ctx)
 	if err != nil {

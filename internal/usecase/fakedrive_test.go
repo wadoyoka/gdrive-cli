@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
@@ -19,8 +20,14 @@ import (
 //   - calls で、メソッド名ごとの呼び出し回数を数える。
 //   - failUpload / failDownload に名前を入れると、その名前の Upload / Download が失敗する。
 //
+// 契約: Get は KindNotFound を返す。CreateFolder / Upload は親がなければ、Move は移動先がなければ、
+// KindNotFound を返す。Move は fromParentID が今の親と違えば KindUnexpected を返す。
+// setTrashed / remove は未知の ID なら t.Fatalf する。
+//
+// 本物の Drive との違い: ctx は見ない。作った直後に一覧へ出ない（結果整合）は再現しない。
 // CreatedTime は、固定の時刻から 1 秒ずつ増やす。
 type fakeDrive struct {
+	t            *testing.T
 	mu           sync.Mutex
 	items        map[string]*fakeItem
 	order        []string // 作った順の ID
@@ -40,8 +47,10 @@ type fakeItem struct {
 
 var fakeEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func newFakeDrive() *fakeDrive {
+func newFakeDrive(t *testing.T) *fakeDrive {
+	t.Helper()
 	return &fakeDrive{
+		t:            t,
 		items:        map[string]*fakeItem{},
 		calls:        map[string]int{},
 		failUpload:   map[string]error{},
@@ -92,13 +101,20 @@ func (f *fakeDrive) addFile(parentID, name string, content []byte) domain.Entry 
 func (f *fakeDrive) setTrashed(id string, trashed bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.items[id].entry.InTrash = trashed
+	it, ok := f.items[id]
+	if !ok {
+		f.t.Fatalf("setTrashed: 未知の ID %q", id)
+	}
+	it.entry.InTrash = trashed
 }
 
 // remove は、項目を完全になくす（ブラウザで完全に削除された状況を作る）。
 func (f *fakeDrive) remove(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if _, ok := f.items[id]; !ok {
+		f.t.Fatalf("remove: 未知の ID %q", id)
+	}
 	delete(f.items, id)
 }
 
@@ -179,10 +195,21 @@ func (f *fakeDrive) FindChildren(_ context.Context, parentID, name string) ([]do
 	return out, nil
 }
 
+// checkParent は、parentID が存在するフォルダか確かめる。呼び出し側が f.mu を持っていること。
+func (f *fakeDrive) checkParent(parentID string) error {
+	if it, ok := f.items[parentID]; !ok || it.entry.Type != domain.TypeFolder {
+		return domain.Errorf(domain.KindNotFound, "親フォルダ %s が見つかりません", parentID)
+	}
+	return nil
+}
+
 func (f *fakeDrive) CreateFolder(_ context.Context, parentID, name string) (domain.Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls["CreateFolder"]++
+	if err := f.checkParent(parentID); err != nil {
+		return domain.Entry{}, err
+	}
 	return f.add(parentID, name, domain.TypeFolder, nil, false), nil
 }
 
@@ -190,6 +217,9 @@ func (f *fakeDrive) Upload(_ context.Context, parentID, name, mimeType string, b
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls["Upload"]++
+	if err := f.checkParent(parentID); err != nil {
+		return domain.Entry{}, err
+	}
 	if err := f.failUpload[name]; err != nil {
 		return domain.Entry{}, err
 	}
@@ -223,13 +253,19 @@ func (f *fakeDrive) Download(_ context.Context, id string, w io.Writer, progress
 	return err
 }
 
-func (f *fakeDrive) Move(_ context.Context, id, _, toParentID, newName string) (domain.Entry, error) {
+func (f *fakeDrive) Move(_ context.Context, id, fromParentID, toParentID, newName string) (domain.Entry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls["Move"]++
 	it, ok := f.items[id]
 	if !ok {
 		return domain.Entry{}, domain.Errorf(domain.KindNotFound, "%s が見つかりません", id)
+	}
+	if it.parentID != fromParentID {
+		return domain.Entry{}, domain.Errorf(domain.KindUnexpected, "%s の親は %s ではありません", id, fromParentID)
+	}
+	if err := f.checkParent(toParentID); err != nil {
+		return domain.Entry{}, err
 	}
 	it.parentID = toParentID
 	if newName != "" {
