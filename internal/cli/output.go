@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 )
@@ -20,14 +21,18 @@ func writeJSON(w io.Writer, v any) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
-// writeError は、エラーを標準エラーに書く。
+// writeError は、エラーを標準エラーに書く。domain.Error に原因（Err）があれば、補足の最後の行として出す。
+// ただし、本文や補足に同じ文字列が既にあれば、重ねて出さない。
 func writeError(w io.Writer, asJSON bool, err error) {
 	body := errorBody{Kind: domain.KindOf(err).String(), Message: err.Error(), Details: []string{}}
 	var de *domain.Error
 	if errors.As(err, &de) {
 		body.Message = de.Message
-		if len(de.Details) > 0 {
-			body.Details = de.Details
+		body.Details = append(body.Details, de.Details...)
+		if de.Err != nil {
+			if cause := de.Err.Error(); cause != body.Message && !slices.Contains(body.Details, cause) {
+				body.Details = append(body.Details, cause)
+			}
 		}
 	}
 	if asJSON {

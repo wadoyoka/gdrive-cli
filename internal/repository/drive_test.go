@@ -213,6 +213,24 @@ func TestDriveClient(t *testing.T) {
 		}
 	})
 
+	t.Run("エラーには URL の問い合わせ部分を残さない", func(t *testing.T) {
+		// Arrange
+		err := &url.Error{Op: "Put", URL: "https://example.com/upload/drive/v3/files?uploadType=resumable&upload_id=SESSION", Err: io.ErrUnexpectedEOF}
+		cause := domain.Errorf(domain.KindConflict, "a.txt を送れません").Wrap(&url.Error{Op: "Post", URL: "https://example.com/files?upload_id=SESSION2", Err: io.EOF})
+
+		// Act
+		got1 := mapError(err)
+		got2 := mapError(cause)
+
+		// Assert
+		if s := got1.Error(); strings.Contains(s, "SESSION") || !strings.Contains(s, `Put "https://example.com/upload/drive/v3/files"`) {
+			t.Errorf("got1 = %q", s)
+		}
+		if s := got2.Error(); strings.Contains(s, "SESSION2") || domain.KindOf(got2) != domain.KindConflict {
+			t.Errorf("got2 = %q", s)
+		}
+	})
+
 	t.Run("フォルダ作成は 503 でもやり直さない", func(t *testing.T) {
 		// Arrange
 		calls := 0

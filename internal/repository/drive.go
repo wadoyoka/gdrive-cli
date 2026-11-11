@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -64,11 +65,12 @@ func escapeQuery(s string) string {
 	return strings.ReplaceAll(s, `'`, `\'`)
 }
 
-// mapError は、API のエラーを domain.Error に変える。
+// mapError は、API のエラーを domain.Error に変える。エラーの文字列は利用者に見せるので、URL の問い合わせ部分は取り除く。
 func mapError(err error) error {
 	if err == nil {
 		return nil
 	}
+	redactURL(err)
 	var de *domain.Error
 	if errors.As(err, &de) {
 		return err
@@ -82,6 +84,17 @@ func mapError(err error) error {
 		return domain.Errorf(domain.KindNotFound, "Drive に見つかりません").Wrap(err)
 	}
 	return domain.Errorf(domain.KindUnexpected, "Drive の操作に失敗しました").Wrap(err)
+}
+
+// redactURL は、err の連なりにある url.Error の URL から、問い合わせ部分を取り除く。
+// 再開可能アップロードの upload_id のように、他人に知られると困る値が入ることがあるため。
+func redactURL(err error) {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		if i := strings.IndexByte(uerr.URL, '?'); i >= 0 {
+			uerr.URL = uerr.URL[:i]
+		}
+	}
 }
 
 func toEntry(f *drive.File) domain.Entry {
@@ -241,7 +254,7 @@ func (c *DriveClient) Upload(ctx context.Context, parentID, name, mimeType strin
 		if !isRateLimited(err) {
 			found, settled, ferr := c.findUploaded(ctx, parentID, name, size, err)
 			if settled {
-				return found, ferr
+				return found, mapError(ferr)
 			}
 		}
 		if _, serr := seeker.Seek(0, io.SeekStart); serr != nil {
