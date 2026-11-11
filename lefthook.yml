@@ -13,7 +13,7 @@ pre-commit:
       # ステージした Go のファイルのディレクトリだけを試す。
       run: |
         dirs="$(for f in {staged_files}; do d="$(dirname "$f")"; [ "$d" = . ] && echo . || echo "./$d"; done | sort -u)"
-        go test $dirs
+        go test $dirs ./internal/archtest/...
     4-trivy-secret:
       # 作業ツリーではなく、コミットされる内容（インデックス）だけを検査する。
       # 作業ツリーを直接見ると、コミットしない未追跡ファイルまで引っかかるため。
