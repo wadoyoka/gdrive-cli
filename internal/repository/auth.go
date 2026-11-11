@@ -73,14 +73,14 @@ func (a *Auth) withHTTPClient(ctx context.Context) context.Context {
 func (a *Auth) config() (*oauth2.Config, error) {
 	data, err := os.ReadFile(a.clientSecretPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, domain.Errorf(domain.KindSetup, "client_secret.json がありません。`gdrive-cli init --client-secret <path>` で取り込んでください")
+		return nil, domain.Errorf(domain.KindSetup, "client_secret.json がありません。`gdrive-cli login --client-secret <path>` で取り込んでください")
 	}
 	if err != nil {
 		return nil, domain.Errorf(domain.KindUnexpected, "client_secret.json を読めません").Wrap(err)
 	}
 	cfg, err := google.ConfigFromJSON(data, drive.DriveFileScope)
 	if err != nil {
-		return nil, domain.Errorf(domain.KindSetup, "client_secret.json を読めません。`gdrive-cli init --client-secret <path>` で取り込み直してください").Wrap(err)
+		return nil, domain.Errorf(domain.KindSetup, "client_secret.json を読めません。`gdrive-cli login --client-secret <path>` で取り込み直してください").Wrap(err)
 	}
 	if a.Endpoint != (oauth2.Endpoint{}) {
 		cfg.Endpoint = a.Endpoint
@@ -301,33 +301,39 @@ func trySend(ch chan<- callbackResult, r callbackResult) {
 	}
 }
 
-// readPasted は、Input から 1 行読み、貼り付けられた URL のクエリから認可コードを取り出す。
+// readPasted は、Input を 1 行ずつ読み、貼り付けられた URL のクエリから認可コードを取り出す。
+// 空行や、URL でない行・認可コードのない行は案内を出して読み続ける。
+// 結果を送るのは、認可コードを得たときと、state の不一致や error パラメータのときだけ。
+// EOF では何も送らず戻る（ループバックか時間切れの判定に任せる）。
 // Input の読み取りは中断できないため、Input が閉じられるか行が届くまで残ることがある。
 func readPasted(opt usecase.LoginOptions, state string, results chan<- callbackResult) {
 	if opt.Input == nil {
 		return
 	}
-	line, err := bufio.NewReader(opt.Input).ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" {
-		if err != nil {
-			trySend(results, callbackResult{err: domain.Errorf(domain.KindSetup, "貼り付けた内容を読めませんでした")})
+	reader := bufio.NewReader(opt.Input)
+	for {
+		raw, readErr := reader.ReadString('\n')
+		if line := strings.TrimSpace(raw); line != "" {
+			u, perr := url.Parse(line)
+			if perr != nil {
+				_, _ = fmt.Fprintln(opt.Prompt, "URL として読めませんでした。ログイン後にアドレスバーへ表示された URL を貼り付けてください。")
+			} else {
+				code, ok, cerr := parseCallback(u.Query(), state)
+				switch {
+				case cerr != nil:
+					trySend(results, callbackResult{err: cerr})
+					return
+				case !ok:
+					_, _ = fmt.Fprintln(opt.Prompt, "その URL には認可コードがありません。ログイン後にアドレスバーへ表示された URL を貼り付けてください。")
+				default:
+					trySend(results, callbackResult{code: code})
+					return
+				}
+			}
 		}
-		return
-	}
-	u, perr := url.Parse(line)
-	if perr != nil {
-		trySend(results, callbackResult{err: domain.Errorf(domain.KindSetup, "貼り付けた内容が URL ではありません").Wrap(perr)})
-		return
-	}
-	code, ok, cerr := parseCallback(u.Query(), state)
-	switch {
-	case cerr != nil:
-		trySend(results, callbackResult{err: cerr})
-	case !ok:
-		trySend(results, callbackResult{err: domain.Errorf(domain.KindSetup, "貼り付けた URL に認可コードがありません")})
-	default:
-		trySend(results, callbackResult{code: code})
+		if readErr != nil {
+			return
+		}
 	}
 }
 

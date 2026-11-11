@@ -27,7 +27,7 @@ type PolicyStore interface {
 type LoginOptions struct {
 	NoBrowser bool
 	Prompt    io.Writer // URL と案内を書く先（標準エラー）
-	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）
+	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）。Login が戻ったあとも読み続けることがあるので、同じ Reader を使い回さないこと
 }
 
 // Authenticator は、Google へのログインとトークンの置き場。

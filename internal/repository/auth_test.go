@@ -316,6 +316,102 @@ func TestAuthLogin(t *testing.T) {
 		}
 	})
 
+	t.Run("空行のあとに正しい URL を貼ってもログインできる", func(t *testing.T) {
+		// Arrange
+		g := newFakeGoogle(t, func(f url.Values) (int, string) {
+			if f.Get("code") != "c2" {
+				return http.StatusBadRequest, `{"error":"invalid_grant"}`
+			}
+			return http.StatusOK, okToken
+		})
+		a := g.auth(t)
+		writeClientSecret(t, a)
+		a.OpenBrowser = func(string) error {
+			t.Error("--no-browser なのにブラウザを開いた")
+			return nil
+		}
+		prompt := &lockedBuffer{}
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		done := make(chan error, 1)
+
+		// Act
+		go func() {
+			done <- a.Login(context.Background(), usecase.LoginOptions{NoBrowser: true, Prompt: prompt, Input: pr})
+		}()
+		var state string
+		deadline := time.Now().Add(5 * time.Second)
+		for state == "" && time.Now().Before(deadline) {
+			for _, f := range strings.Fields(prompt.String()) {
+				if u, err := url.Parse(f); err == nil && u.Query().Get("state") != "" {
+					state = u.Query().Get("state")
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if state == "" {
+			t.Fatalf("Prompt に URL がない: %q", prompt.String())
+		}
+		_, _ = io.WriteString(pw, "\n  \n")
+		_, _ = io.WriteString(pw, "http://127.0.0.1:9/?code=c2&state="+url.QueryEscape(state)+"\n")
+		err := <-done
+		// Assert
+		if err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		if !a.HasToken() {
+			t.Error("token.json がない")
+		}
+	})
+
+	t.Run("URL でない行のあとに正しい URL を貼ってもログインできる", func(t *testing.T) {
+		// Arrange
+		g := newFakeGoogle(t, func(f url.Values) (int, string) {
+			if f.Get("code") != "c2" {
+				return http.StatusBadRequest, `{"error":"invalid_grant"}`
+			}
+			return http.StatusOK, okToken
+		})
+		a := g.auth(t)
+		writeClientSecret(t, a)
+		a.OpenBrowser = func(string) error {
+			t.Error("--no-browser なのにブラウザを開いた")
+			return nil
+		}
+		prompt := &lockedBuffer{}
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		done := make(chan error, 1)
+
+		// Act
+		go func() {
+			done <- a.Login(context.Background(), usecase.LoginOptions{NoBrowser: true, Prompt: prompt, Input: pr})
+		}()
+		var state string
+		deadline := time.Now().Add(5 * time.Second)
+		for state == "" && time.Now().Before(deadline) {
+			for _, f := range strings.Fields(prompt.String()) {
+				if u, err := url.Parse(f); err == nil && u.Query().Get("state") != "" {
+					state = u.Query().Get("state")
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if state == "" {
+			t.Fatalf("Prompt に URL がない: %q", prompt.String())
+		}
+		_, _ = io.WriteString(pw, "garbage\nhttp://127.0.0.1:9/?nothing=1\n")
+		_, _ = io.WriteString(pw, "http://127.0.0.1:9/?code=c2&state="+url.QueryEscape(state)+"\n")
+		err := <-done
+		// Assert
+		if err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		if !a.HasToken() {
+			t.Error("token.json がない")
+		}
+	})
+
 	t.Run("client_secret がなければ準備が必要", func(t *testing.T) {
 		// Arrange
 		g := newFakeGoogle(t, func(url.Values) (int, string) { return http.StatusOK, okToken })
