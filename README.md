@@ -50,6 +50,7 @@ terraform -chdir=infra apply -var project_id=<全世界で重複しないプロ�
 
 - `project_id` は、小文字で始まり、小文字・数字・ハイフンだけを使った 6〜30 文字で、最後は小文字か数字にする。
 - プロジェクトは組織やフォルダに属させない。`deletion_policy = "PREVENT"` なので、`terraform destroy` ではプロジェクトを消せない。
+- 課金がないので Compute Engine API は有効にならず、既定のネットワーク（VPC）は作られない。
 - state はローカルに置かれる（`*.tfstate*` と `.terraform/` は git に入らない）。
 - `apply` が終わると、`project_id`、`auth_overview_url`、`auth_clients_url` が出力される。次の手作業で、この2つの URL を使う。あとから見るには `terraform -chdir=infra output` を実行する。
 
@@ -333,4 +334,4 @@ GDRIVE_CLI_E2E=1 go test ./internal/repository/ -run TestE2E -v
 - 層は cli、usecase、domain、repository の4つ。依存の向きは `internal/archtest` と golangci-lint の depguard が確かめる。削除と共有の API を本体のコードから呼べないことも、archtest が機械的に確かめている。
 - タスクの管理には bd（beads）をステルスモードで使う（`bd ready`、`bd create`、`bd update <id> --status in_progress`、`bd close <id>`）。`.beads/` は git に入らない。
 - 試し用のファイルは `rm` ではなく、`trash/` へ `mv` で片付ける。
-- CI は commitlint、golangci-lint、`go test`、trivy、`terraform fmt -check` と `validate` を走らせる。trivy の Terraform 向けの misconfig 検査（`trivy fs --scanners misconfig infra`）は、指摘が出なくなったので CI にも入れた（`google_project` に `auto_create_network = false` を足して解消した）。
+- CI は commitlint、golangci-lint、`go test`、trivy、`terraform fmt -check` と `validate` を走らせる。trivy の Terraform 向けの misconfig 検査（`trivy fs --scanners misconfig infra`）も CI に入れている。`google_project` の GCP-0010（既定のネットワークを作る設定）だけは、`infra/main.tf` の `#trivy:ignore:GCP-0010` で外している。`auto_create_network = false` にすると、provider が既定のネットワークを消すために Compute Engine API を有効にしようとし、課金を紐づけないこのプロジェクトでは `apply` が失敗するため。課金がなければ Compute Engine API は有効にならないので、既定のネットワークは作られない。
