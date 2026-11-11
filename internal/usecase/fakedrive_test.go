@@ -19,6 +19,9 @@ import (
 //   - setTrashed で項目にゴミ箱の印を付ける。
 //   - calls で、メソッド名ごとの呼び出し回数を数える。
 //   - failUpload / failDownload に名前を入れると、その名前の Upload / Download が失敗する。
+//     Download は、中身の前半を w に書いてから失敗する（途中で切れた状況を作る）。
+//   - setMimeType で項目の MIME タイプを変える（Google ドキュメントなどを作る）。
+//   - addFile / addFolder の名前は検証しない（"../evil" や "a/b" のような手元で使えない名前も置ける）。
 //
 // 契約: Get は KindNotFound を返す。CreateFolder / Upload は親がなければ、Move は移動先がなければ、
 // KindNotFound を返す。Move は fromParentID が今の親と違えば KindUnexpected を返す。
@@ -106,6 +109,17 @@ func (f *fakeDrive) setTrashed(id string, trashed bool) {
 		f.t.Fatalf("setTrashed: 未知の ID %q", id)
 	}
 	it.entry.InTrash = trashed
+}
+
+// setMimeType は、項目の MIME タイプを変える。
+func (f *fakeDrive) setMimeType(id, mimeType string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	it, ok := f.items[id]
+	if !ok {
+		f.t.Fatalf("setMimeType: 未知の ID %q", id)
+	}
+	it.entry.MimeType = mimeType
 }
 
 // remove は、項目を完全になくす（ブラウザで完全に削除された状況を作る）。
@@ -244,6 +258,7 @@ func (f *fakeDrive) Download(_ context.Context, id string, w io.Writer, progress
 		return domain.Errorf(domain.KindNotFound, "%s が見つかりません", id)
 	}
 	if err := f.failDownload[it.entry.Name]; err != nil {
+		_, _ = w.Write(it.content[:len(it.content)/2])
 		return err
 	}
 	n, err := io.Copy(w, bytes.NewReader(it.content))

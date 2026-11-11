@@ -21,6 +21,7 @@ type Deps struct {
 	Mkdir    usecase.Mkdir
 	List     usecase.List
 	Upload   usecase.Upload
+	Download usecase.Download
 	Policy   usecase.PolicyStore
 	Stdin    io.Reader
 	Stdout   io.Writer
@@ -85,7 +86,7 @@ func newRootCommand(d Deps, extra ...*cobra.Command) *cobra.Command {
 	root.PersistentFlags().BoolVar(asJSON, "json", false, "結果を JSON で出す")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError(err) })
 	root.AddCommand(newInitCommand(d, asJSON), newLoginCommand(d, asJSON), newLogoutCommand(d, asJSON), newStatusCommand(d, asJSON),
-		newMkdirCommand(d, asJSON), newLsCommand(d, asJSON), newUploadCommand(d, asJSON))
+		newMkdirCommand(d, asJSON), newLsCommand(d, asJSON), newUploadCommand(d, asJSON), newDownloadCommand(d, asJSON))
 	for _, c := range extra {
 		if c.Args != nil {
 			c.Args = usageArgs(c.Args)
