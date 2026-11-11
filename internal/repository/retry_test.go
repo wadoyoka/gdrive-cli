@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,6 +34,10 @@ func TestIsRetryable(t *testing.T) {
 		{"404", &googleapi.Error{Code: 404}, false},
 		{"タイムアウト", timeoutErr{}, true},
 		{"UnexpectedEOF", io.ErrUnexpectedEOF, true},
+		{"接続のリセット", &url.Error{Op: "Post", URL: "x", Err: &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}}, true},
+		{"切れた接続への書き込み", &url.Error{Op: "Post", URL: "x", Err: &net.OpError{Op: "write", Net: "tcp", Err: os.NewSyscallError("write", syscall.EPIPE)}}, true},
+		{"応答の前に接続が閉じられた", &url.Error{Op: "Post", URL: "x", Err: io.EOF}, true},
+		{"中断", &url.Error{Op: "Post", URL: "x", Err: context.Canceled}, false},
 		{"その他", errors.New("x"), false},
 		{"nil", nil, false},
 	}

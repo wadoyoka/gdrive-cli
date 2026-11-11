@@ -3,11 +3,14 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -275,6 +278,193 @@ func TestDriveClient(t *testing.T) {
 		}
 		if sb.String() != "hello bytes" || last != 11 {
 			t.Errorf("got %q, last = %d", sb.String(), last)
+		}
+	})
+}
+
+// uploadServer は、Upload を試すための偽の Drive。
+// アップロードの要求には uploads の順に応え、一覧の要求には listed を返す。
+type uploadServer struct {
+	mu      sync.Mutex
+	uploads []func(w http.ResponseWriter, r *http.Request) // n 回目のアップロードの応え方。尽きたら最後のものを使う
+	listed  []map[string]any                               // FindChildren に返すファイル
+	bodies  []string                                       // 受け取ったアップロードの本文
+	lists   int                                            // 一覧の要求の回数
+}
+
+func (s *uploadServer) handle(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/files") {
+		s.lists++
+		files := s.listed
+		if files == nil {
+			files = []map[string]any{}
+		}
+		writeJSON(w, map[string]any{"files": files})
+		return
+	}
+	if r.Method != http.MethodPost || !strings.Contains(r.URL.Path, "/upload/") {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	b, _ := io.ReadAll(r.Body)
+	s.bodies = append(s.bodies, string(b))
+	respond := s.uploads[min(len(s.bodies), len(s.uploads))-1]
+	respond(w, r)
+}
+
+func uploadStatus(code int) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_, _ = fmt.Fprintf(w, `{"error":{"code":%d,"message":"x"}}`, code)
+	}
+}
+
+func uploadCreated(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]any{"id": "F1", "name": "a.txt", "size": "5", "mimeType": "text/plain"})
+}
+
+// onlySeq は、io.Seeker を隠した Reader。
+type onlySeq struct{ r io.Reader }
+
+func (o onlySeq) Read(p []byte) (int, error) { return o.r.Read(p) }
+
+func TestDriveClientUpload(t *testing.T) {
+	const content = "hello"
+
+	t.Run("429 で断られたら、先頭から送り直して 1 つだけ作る", func(t *testing.T) {
+		// Arrange
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusTooManyRequests), uploadCreated}}
+		c, slept := newTestDrive(t, s.handle)
+		var reported []int64
+		// Act
+		e, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, func(n int64) { reported = append(reported, n) })
+		// Assert
+		if err != nil || e.ID != "F1" {
+			t.Fatalf("e = %+v, err = %v", e, err)
+		}
+		if len(s.bodies) != 2 || !strings.Contains(s.bodies[1], content) {
+			t.Errorf("bodies = %q", s.bodies)
+		}
+		if s.lists != 0 {
+			t.Errorf("断られたときは探さないはず: lists = %d", s.lists)
+		}
+		if len(*slept) != 1 || (*slept)[0] != time.Second {
+			t.Errorf("slept = %v", *slept)
+		}
+		if len(reported) == 0 || reported[0] != 0 {
+			t.Errorf("送り直すときは進捗を 0 に戻すはず: reported = %v", reported)
+		}
+	})
+
+	t.Run("503 でもファイルができていれば、送り直さずにそれを返す", func(t *testing.T) {
+		// Arrange
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusServiceUnavailable)}}
+		s.listed = []map[string]any{{"id": "F9", "name": "a.txt", "size": "5", "mimeType": "text/plain"}}
+		c, _ := newTestDrive(t, s.handle)
+		// Act
+		e, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, nil)
+		// Assert
+		if err != nil || e.ID != "F9" {
+			t.Fatalf("e = %+v, err = %v", e, err)
+		}
+		if len(s.bodies) != 1 || s.lists != 1 {
+			t.Errorf("uploads = %d, lists = %d", len(s.bodies), s.lists)
+		}
+	})
+
+	t.Run("503 でファイルができていなければ、送り直して成功する", func(t *testing.T) {
+		// Arrange
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusServiceUnavailable), uploadCreated}}
+		c, _ := newTestDrive(t, s.handle)
+		// Act
+		e, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, nil)
+		// Assert
+		if err != nil || e.ID != "F1" {
+			t.Fatalf("e = %+v, err = %v", e, err)
+		}
+		if len(s.bodies) != 2 || !strings.Contains(s.bodies[1], content) || s.lists != 1 {
+			t.Errorf("bodies = %q, lists = %d", s.bodies, s.lists)
+		}
+	})
+
+	t.Run("503 が続けば 5 回で諦める", func(t *testing.T) {
+		// Arrange
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusServiceUnavailable)}}
+		c, slept := newTestDrive(t, s.handle)
+		// Act
+		_, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, nil)
+		// Assert
+		if domain.KindOf(err) != domain.KindUnexpected {
+			t.Fatalf("err = %v", err)
+		}
+		want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+		if len(s.bodies) != 5 || !slices.Equal(*slept, want) {
+			t.Errorf("uploads = %d, slept = %v", len(s.bodies), *slept)
+		}
+	})
+
+	t.Run("送り直す前に見つかったものが送ったものか分からなければ、送り直さずに衝突にする", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			listed []map[string]any
+		}{
+			{"大きさが違う", []map[string]any{{"id": "F9", "name": "a.txt", "size": "4"}}},
+			{"2 つある", []map[string]any{{"id": "F8", "name": "a.txt", "size": "5"}, {"id": "F9", "name": "a.txt", "size": "5"}}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				// Arrange
+				s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusBadGateway)}, listed: tc.listed}
+				c, _ := newTestDrive(t, s.handle)
+				// Act
+				_, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, nil)
+				// Assert
+				if domain.KindOf(err) != domain.KindConflict || !strings.Contains(err.Error(), "F9") {
+					t.Errorf("err = %v", err)
+				}
+				if len(s.bodies) != 1 {
+					t.Errorf("uploads = %d", len(s.bodies))
+				}
+			})
+		}
+	})
+
+	t.Run("応答の前に接続が切れたら、できていないことを確かめて送り直す", func(t *testing.T) {
+		// Arrange
+		hangUp := func(w http.ResponseWriter, _ *http.Request) {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		}
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){hangUp, uploadCreated}}
+		c, _ := newTestDrive(t, s.handle)
+		// Act
+		e, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", strings.NewReader(content), 5, nil)
+		// Assert
+		if err != nil || e.ID != "F1" {
+			t.Fatalf("e = %+v, err = %v", e, err)
+		}
+		if len(s.bodies) != 2 || s.lists != 1 {
+			t.Errorf("uploads = %d, lists = %d", len(s.bodies), s.lists)
+		}
+	})
+
+	t.Run("先頭に戻せない本文なら、やり直さない", func(t *testing.T) {
+		// Arrange
+		s := &uploadServer{uploads: []func(http.ResponseWriter, *http.Request){uploadStatus(http.StatusServiceUnavailable), uploadCreated}}
+		c, slept := newTestDrive(t, s.handle)
+		// Act
+		_, err := c.Upload(context.Background(), "P1", "a.txt", "text/plain", onlySeq{strings.NewReader(content)}, 5, nil)
+		// Assert
+		if err == nil {
+			t.Fatal("err = nil")
+		}
+		if len(s.bodies) != 1 || s.lists != 0 || len(*slept) != 0 {
+			t.Errorf("uploads = %d, lists = %d, slept = %v", len(s.bodies), s.lists, *slept)
 		}
 	})
 }

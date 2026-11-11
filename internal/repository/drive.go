@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -214,8 +215,45 @@ func (c *DriveClient) CreateFolder(ctx context.Context, parentID, name string) (
 	return c.create(ctx, &drive.File{Name: name, MimeType: domain.FolderMimeType, Parents: []string{parentID}})
 }
 
-// Upload は、parentID の下に新しいファイルを作る。分割送信のため、やり直しはライブラリに任せる。
-func (c *DriveClient) Upload(ctx context.Context, parentID, name, mimeType string, body io.Reader, _ int64, progress func(sent int64)) (domain.Entry, error) {
+// Upload は、parentID の下に新しいファイルを作る。16 MiB を超えるものは分けて送り、分けた 1 つずつのやり直しはライブラリが行う。
+// body が io.Seeker なら、一時的な失敗のとき、先頭に戻して最初から送り直す（最大 attempts 回）。
+//   - 混み合いで断られた（429 など）なら、何も作られていないので、そのまま送り直す。
+//   - 5xx や通信の失敗なら、ファイルが作られたかもしれないので、送り直す前に同じ名前のファイルを探す。
+//     大きさが size のファイルが 1 つだけあれば、それを結果にする（usecase の計画で、同じ名前のファイルが
+//     なかったことを確かめてあるため）。なければ送り直す。それ以外は、重ねて作らないよう、送り直さずにエラーにする。
+//
+// body が io.Seeker でなければ、送り直さない。
+func (c *DriveClient) Upload(ctx context.Context, parentID, name, mimeType string, body io.Reader, size int64, progress func(sent int64)) (domain.Entry, error) {
+	seeker, ok := body.(io.Seeker)
+	if !ok {
+		e, err := c.uploadOnce(ctx, parentID, name, mimeType, body, progress)
+		return e, mapError(err)
+	}
+	for attempt := 1; ; attempt++ {
+		e, err := c.uploadOnce(ctx, parentID, name, mimeType, body, progress)
+		if err == nil {
+			return e, nil
+		}
+		if !isRetryable(err) || attempt >= c.attempts || ctx.Err() != nil {
+			return domain.Entry{}, mapError(err)
+		}
+		c.sleep(backoff(attempt))
+		if !isRateLimited(err) {
+			found, settled, ferr := c.findUploaded(ctx, parentID, name, size, err)
+			if settled {
+				return found, ferr
+			}
+		}
+		if _, serr := seeker.Seek(0, io.SeekStart); serr != nil {
+			return domain.Entry{}, domain.Errorf(domain.KindUnexpected, "%s を最初から読み直せません", name).Wrap(serr)
+		}
+		if progress != nil {
+			progress(0)
+		}
+	}
+}
+
+func (c *DriveClient) uploadOnce(ctx context.Context, parentID, name, mimeType string, body io.Reader, progress func(sent int64)) (domain.Entry, error) {
 	call := c.svc.Files.Create(&drive.File{Name: name, Parents: []string{parentID}}).
 		Media(body, googleapi.ContentType(mimeType), googleapi.ChunkSize(uploadChunk), googleapi.ChunkRetryDeadline(chunkRetry)).
 		Fields(entryFields).Context(ctx)
@@ -224,9 +262,32 @@ func (c *DriveClient) Upload(ctx context.Context, parentID, name, mimeType strin
 	}
 	res, err := call.Do()
 	if err != nil {
-		return domain.Entry{}, mapError(err)
+		return domain.Entry{}, err
 	}
 	return toEntry(res), nil
+}
+
+// findUploaded は、失敗した送信でファイルが作られていないかを調べる。settled が false なら、何もなく、送り直してよい。
+// settled が true なら、送り直さずに entry と err を結果にする。
+func (c *DriveClient) findUploaded(ctx context.Context, parentID, name string, size int64, cause error) (entry domain.Entry, settled bool, err error) {
+	found, err := c.FindChildren(ctx, parentID, name)
+	if err != nil {
+		return domain.Entry{}, true, err
+	}
+	switch {
+	case len(found) == 0:
+		return domain.Entry{}, false, nil
+	case len(found) == 1 && found[0].Type == domain.TypeFile && found[0].Size == size:
+		return found[0], true, nil
+	}
+	list := make([]string, 0, len(found))
+	for _, e := range found {
+		list = append(list, fmt.Sprintf("ID %s、%d バイト", e.ID, e.Size))
+	}
+	// usecase は項目ごとに Error() の文字列だけを残すので、見つかったものは補足ではなく本文に入れる。
+	return domain.Entry{}, true, domain.Errorf(domain.KindConflict,
+		"%s を送る途中で失敗したあと、同じ名前のものが見つかりましたが、送ったものか分かりません（%s）。重ねて作らないよう、送り直していません",
+		name, strings.Join(list, "／")).Wrap(cause)
 }
 
 type countingWriter struct {
@@ -255,7 +316,7 @@ func (c *DriveClient) Download(ctx context.Context, id string, w io.Writer, prog
 		if cw.n > 0 || !isRetryable(err) || attempt >= c.attempts || ctx.Err() != nil {
 			return mapError(err)
 		}
-		c.sleep(time.Second << (attempt - 1))
+		c.sleep(backoff(attempt))
 	}
 }
 

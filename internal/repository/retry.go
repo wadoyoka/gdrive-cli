@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"syscall"
 	"time"
 
 	"google.golang.org/api/googleapi"
@@ -16,25 +18,48 @@ func isRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
+	if isRateLimited(err) {
+		return true
+	}
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) {
-		switch {
-		case gerr.Code == http.StatusTooManyRequests, gerr.Code >= 500:
-			return true
-		case gerr.Code == http.StatusForbidden:
-			for _, e := range gerr.Errors {
-				if e.Reason == "rateLimitExceeded" || e.Reason == "userRateLimitExceeded" {
-					return true
-				}
-			}
-		}
+		return gerr.Code >= 500
+	}
+	return isNetworkError(err)
+}
+
+// isRateLimited は、混み合いで断られた失敗（429、403 の rateLimitExceeded と userRateLimitExceeded）かどうかを返す。
+// 断られた要求は処理されていないので、何も作られていない。
+func isRateLimited(err error) bool {
+	var gerr *googleapi.Error
+	if !errors.As(err, &gerr) {
 		return false
 	}
+	switch gerr.Code {
+	case http.StatusTooManyRequests:
+		return true
+	case http.StatusForbidden:
+		for _, e := range gerr.Errors {
+			if e.Reason == "rateLimitExceeded" || e.Reason == "userRateLimitExceeded" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isNetworkError は、やり直してよい通信の失敗（時間切れ、接続のリセット、途中で切れた応答など）かどうかを返す。
+func isNetworkError(err error) bool {
 	var nerr net.Error
 	if errors.As(err, &nerr) && nerr.Timeout() {
 		return true
 	}
-	return errors.Is(err, io.ErrUnexpectedEOF)
+	// 要求を送ったあと、応答の前に接続が閉じられたとき、net/http は io.EOF を url.Error に包んで返す。
+	var uerr *url.Error
+	if errors.As(err, &uerr) && errors.Is(uerr.Err, io.EOF) {
+		return true
+	}
+	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
 
 // retry は、fn が やり直せる失敗を返したとき、1s、2s、4s、8s と待って、最大 attempts 回まで呼ぶ。
@@ -48,7 +73,12 @@ func (c *DriveClient) retry(ctx context.Context, fn func() error) error {
 		if ctx.Err() != nil {
 			return err
 		}
-		c.sleep(time.Second << (attempt - 1))
+		c.sleep(backoff(attempt))
 	}
 	return err
+}
+
+// backoff は、attempt 回目の失敗のあとに待つ時間（1s、2s、4s、8s）を返す。
+func backoff(attempt int) time.Duration {
+	return time.Second << (attempt - 1)
 }
