@@ -42,6 +42,7 @@ func run(ctx context.Context) int {
 		Status:   usecase.Status{Dir: configDir, Auth: auth, Remote: remote},
 		Mkdir:    usecase.Mkdir{Remote: remote},
 		List:     usecase.List{Remote: remote},
+		Upload:   usecase.Upload{Remote: remote},
 		Policy:   policy,
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
