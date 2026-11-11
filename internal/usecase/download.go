@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 )
@@ -77,7 +78,7 @@ func (u Download) Run(ctx context.Context, in DownloadInput) (TransferResult, er
 	}
 	u.createDirs(ctx, nodes)
 	u.downloadFiles(ctx, s, nodes, in.Progress)
-	items, err := collectDownload(ctx, nodes)
+	items, err := collectDownload(ctx, nodes, in.Overwrite)
 	return TransferResult{Items: items, Warnings: warnings}, err
 }
 
@@ -115,13 +116,19 @@ func plan(ctx context.Context, s *Session, sources []domain.RemotePath, dest str
 			return nil, p.warnings, err
 		}
 	}
-	count := map[string]int{}
+	// 大文字小文字や正規化（NFC / NFD）を区別しないファイルシステムでは、別の名前が同じ場所になるので、
+	// 畳み込んだパスで同じ保存先かを調べる（どの OS でも同じ結果にして、安全側に倒す）。
+	groups := map[string][]string{}
 	for _, n := range p.nodes {
-		count[n.item.LocalPath]++
-		if count[n.item.LocalPath] == 2 {
-			p.conflicts = append(p.conflicts, n.item.RemotePath)
+		k := strings.ToLower(domain.NormalizeName(n.item.LocalPath))
+		groups[k] = append(groups[k], n.item.RemotePath)
+	}
+	for _, g := range groups {
+		if len(g) > 1 {
+			p.conflicts = append(p.conflicts, g...)
 		}
 	}
+	slices.Sort(p.conflicts)
 	if len(p.conflicts) > 0 {
 		return nil, p.warnings, conflictError(p.conflicts)
 	}
@@ -304,7 +311,7 @@ func downloadOne(ctx context.Context, s *Session, n *downloadNode, progress Prog
 		return errors.New(msgNotSaved)
 	}
 	target := n.item.LocalPath
-	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".gdrive-cli-*.part")
+	tmp, err := os.CreateTemp(filepath.Dir(target), tempPattern(filepath.Base(target)))
 	if err != nil {
 		return domain.Errorf(domain.KindUnexpected, "%s の一時ファイルを作れません", target).Wrap(err)
 	}
@@ -333,6 +340,9 @@ func downloadOne(ctx context.Context, s *Session, n *downloadNode, progress Prog
 	if err := tmp.Chmod(0o644); err != nil {
 		return domain.Errorf(domain.KindUnexpected, "%s の権限を設定できません", target).Wrap(err)
 	}
+	if err := tmp.Sync(); err != nil {
+		return domain.Errorf(domain.KindUnexpected, "%s を書けません", target).Wrap(err)
+	}
 	closed = true
 	if err := tmp.Close(); err != nil {
 		return domain.Errorf(domain.KindUnexpected, "%s を書けません", target).Wrap(err)
@@ -348,7 +358,7 @@ func downloadOne(ctx context.Context, s *Session, n *downloadNode, progress Prog
 
 // collectDownload は、項目を RemotePath の順（フォルダの中身はそのフォルダのすぐあと）に並べる。
 // 失敗が 1 件でもあれば、結果と一緒に KindUnexpected を返す。補足は、失敗したパスと理由。
-func collectDownload(ctx context.Context, nodes []*downloadNode) ([]TransferItem, error) {
+func collectDownload(ctx context.Context, nodes []*downloadNode, overwrite bool) ([]TransferItem, error) {
 	slices.SortStableFunc(nodes, func(a, b *downloadNode) int {
 		return slices.Compare(a.path.Segments(), b.path.Segments())
 	})
@@ -363,10 +373,28 @@ func collectDownload(ctx context.Context, nodes []*downloadNode) ([]TransferItem
 	if len(failed) == 0 {
 		return items, nil
 	}
-	err := domain.Errorf(domain.KindUnexpected, "%d 件のダウンロードに失敗しました。--skip-existing を付けて同じコマンドをもう一度実行すると、続きから受け取れます", len(failed)).
+	// --overwrite のとき、失敗したファイルは古い中身のままなので、--skip-existing では飛ばされてしまう
+	hint := "--skip-existing を付けて同じコマンドをもう一度実行すると、続きから受け取れます"
+	if overwrite {
+		hint = "同じコマンドをもう一度実行すると、やり直せます"
+	}
+	err := domain.Errorf(domain.KindUnexpected, "%d 件のダウンロードに失敗しました。%s", len(failed), hint).
 		WithDetails(failed...)
 	if ctx.Err() != nil {
 		err = err.Wrap(ctx.Err())
 	}
 	return items, err
+}
+
+// tempPattern は、一時ファイルの名前の型を返す。全体が 255 バイトに収まるよう、
+// 元の名前だけを UTF-8 の文字の切れ目で切り詰める（最終の名前は変えない）。
+func tempPattern(name string) string {
+	const prefix, suffix = ".", ".gdrive-cli-*.part"
+	const maxLen = 255 - 10 // CreateTemp が * を置き換える乱数の桁数の余裕
+	limit := maxLen - len(prefix) - len(suffix)
+	for len(name) > limit {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return prefix + name + suffix
 }

@@ -422,4 +422,75 @@ func TestDownload(t *testing.T) {
 			t.Errorf("tree=%v items=%+v", got, res.Items)
 		}
 	})
+
+	t.Run("同じ保存先になる名前が 2 つあると衝突で、何も書かない", func(t *testing.T) {
+		cases := []struct {
+			name          string
+			first, second string
+		}{
+			{"同じ名前", "a.txt", "a.txt"},
+			{"大文字小文字だけの違い", "Report.txt", "report.txt"},
+			{"NFC と NFD", "caf\u00e9.txt", "cafe\u0301.txt"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				// Arrange
+				d, src, dir := newDownloadFixture(t)
+				d.addFile(src.ID, c.first, []byte("1"))
+				d.addFile(src.ID, c.second, []byte("2"))
+				u := Download{Remote: newRemote(d)}
+
+				// Act
+				_, err := u.Run(context.Background(), DownloadInput{Sources: []domain.RemotePath{mustPath(t, "/src")}, DestDir: dir})
+
+				// Assert
+				if domain.KindOf(err) != domain.KindConflict || len(detailsOf(err)) != 2 {
+					t.Fatalf("err=%v details=%v", err, detailsOf(err))
+				}
+				if d.callCount("Download") != 0 || len(listTree(t, dir)) != 0 {
+					t.Errorf("Download=%d tree=%v", d.callCount("Download"), listTree(t, dir))
+				}
+			})
+		}
+	})
+
+	t.Run("一部の失敗の案内は、--overwrite のときは --skip-existing を勧めない", func(t *testing.T) {
+		// Arrange
+		d, src, dir := newDownloadFixture(t)
+		d.addFile(src.ID, "a.txt", []byte("abcdef"))
+		d.failDownload["a.txt"] = errors.New("通信が切れました")
+		u := Download{Remote: newRemote(d)}
+		in := DownloadInput{Sources: []domain.RemotePath{mustPath(t, "/src")}, DestDir: dir}
+
+		// Act
+		_, errPlain := u.Run(context.Background(), in)
+		in.Overwrite = true
+		_, errOver := u.Run(context.Background(), in)
+
+		// Assert
+		if errPlain == nil || !strings.Contains(errPlain.Error(), "--skip-existing") {
+			t.Errorf("errPlain=%v", errPlain)
+		}
+		if errOver == nil || strings.Contains(errOver.Error(), "--skip-existing") {
+			t.Errorf("errOver=%v", errOver)
+		}
+	})
+
+	t.Run("長い名前（日本語 80 文字）も受け取れる", func(t *testing.T) {
+		// Arrange
+		d, src, dir := newDownloadFixture(t)
+		name := strings.Repeat("あ", 80) + ".txt" // 244 バイト
+		d.addFile(src.ID, name, []byte("long"))
+		u := Download{Remote: newRemote(d)}
+
+		// Act
+		_, err := u.Run(context.Background(), DownloadInput{Sources: []domain.RemotePath{mustPath(t, "/src/"+name)}, DestDir: dir})
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := listTree(t, dir); !slices.Equal(got, []string{name}) || readLocal(t, filepath.Join(dir, name)) != "long" {
+			t.Errorf("tree=%v", got)
+		}
+	})
 }
