@@ -179,7 +179,7 @@ gdrive-cli upload --skip-existing --json ./out /archive/2026-11
 - **書き込む前に計画を立てる。** 衝突がフラグなしで1つでもあれば、何もアップロードせずに終了コード 5 で返し、衝突の一覧を出す。
 - 大きいファイルは、16 MiB ずつ分けて送る再開可能アップロードで送る。一時的なエラー（429、5xx、通信エラー）は、待ち時間を伸ばしながら自動でやり直す。同時に送るファイルは最大 4 本。
 - `.DS_Store` は飛ばす。シンボリックリンクはたどらず、警告を出して飛ばす。空のフォルダも作る。MIME タイプは拡張子から決める（Google ドキュメントなどへの変換はしない）。
-- 結果は1件ごとに、ローカルのパス、ドライブ側のパス、ID、サイズ、ブラウザ用リンク（`webViewLink`）、処理（`created` か `skipped`）が出る。
+- 結果は1件ごとに、ローカルのパス、ドライブ側のパス、ID、サイズ、ブラウザ用リンク（`webViewLink`）、処理（`created`、`merged`、`skipped` のどれか。`merged` は、既にあるフォルダに合流したこと）が出る。
 - **JSON の結果で `error` が空でない項目は、その処理が終わっていない。** `action` の欄に出ているのは、行うつもりだった処理である。成功したかどうかは、`error` が空かどうかで判断する。
 - 途中で失敗したファイルがあれば終了コード 1 になる。成功したものと失敗したものの両方が出る。続きは `--skip-existing` を付けて同じコマンドをやり直す。
 - **フォルダの作成は自動ではやり直さない。** やり直すと同じ名前のフォルダが2つできるおそれがあるため。フォルダの作成が失敗したときは、`mkdir -p` か `upload --skip-existing` で自分でやり直す。
@@ -319,6 +319,12 @@ make lint           # golangci-lint run ./...
 make fmt            # golangci-lint fmt
 make test           # go test ./...
 make tf-check       # infra/ の terraform fmt -check、init、validate
+```
+
+- 実際の Drive を使う E2E テストは、既定では飛ばされる。先に `init` と `login` を済ませてから、次を実行する。ルートフォルダの下に `/e2e-<時刻>` を作り、終わると消す。
+
+```bash
+GDRIVE_CLI_E2E=1 go test ./internal/repository/ -run TestE2E -v
 ```
 
 - ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、terraform、node、pnpm）。CI も同じ版を使う。
