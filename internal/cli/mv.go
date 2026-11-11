@@ -20,23 +20,25 @@ func newMvCommand(d Deps, asJSON *bool) *cobra.Command {
 			}
 			items, err := d.Move.Run(cmd.Context(), paths[:len(paths)-1], paths[len(paths)-1])
 			if err != nil {
-				if !*asJSON {
-					_ = writeMoveItems(d, items)
+				// 途中で失敗しても、移せたものは出す。JSON なら、結果は標準出力に、エラーは標準エラーに出る。
+				if len(items) > 0 {
+					_ = writeMoveItems(d, *asJSON, items)
 				}
 				return err
 			}
-			if *asJSON {
-				if items == nil {
-					items = []usecase.MoveItem{}
-				}
-				return writeJSON(d.Stdout, items)
-			}
-			return writeMoveItems(d, items)
+			return writeMoveItems(d, *asJSON, items)
 		},
 	}
 }
 
-func writeMoveItems(d Deps, items []usecase.MoveItem) error {
+// writeMoveItems は、移したものを、JSON の配列か「<移動元>\t<移動先>\t<webViewLink>」の行で書く。
+func writeMoveItems(d Deps, asJSON bool, items []usecase.MoveItem) error {
+	if asJSON {
+		if items == nil {
+			items = []usecase.MoveItem{}
+		}
+		return writeJSON(d.Stdout, items)
+	}
 	for _, it := range items {
 		if _, err := fmt.Fprintf(d.Stdout, "%s\t%s\t%s\n", it.From, it.To, it.WebViewLink); err != nil {
 			return err
