@@ -55,3 +55,15 @@ type Drive interface {
 
 // DriveOpener は、ログイン済みの Drive を開く。
 type DriveOpener func(ctx context.Context) (Drive, error)
+
+// StateStore は、リポジトリの状態（ルートフォルダの ID）の置き場。
+type StateStore interface {
+	// RootFolderID は、保存した ID を返す。なければ空文字。
+	RootFolderID() (string, error)
+	SetRootFolderID(id string) error
+}
+
+// Locker は、ほかの gdrive-cli と同時に書き込まないための排他ロック。
+type Locker interface {
+	Lock(ctx context.Context) (unlock func(), err error)
+}
