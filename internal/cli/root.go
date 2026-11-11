@@ -15,6 +15,9 @@ import (
 // Deps は、コマンドが使うものをまとめたもの。
 type Deps struct {
 	Init     usecase.Init
+	Login    usecase.Login
+	Logout   usecase.Logout
+	Status   usecase.Status
 	Policy   usecase.PolicyStore
 	Stdin    io.Reader
 	Stdout   io.Writer
@@ -78,7 +81,7 @@ func newRootCommand(d Deps, extra ...*cobra.Command) *cobra.Command {
 	root.SetErr(d.Stderr)
 	root.PersistentFlags().BoolVar(asJSON, "json", false, "結果を JSON で出す")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError(err) })
-	root.AddCommand(newInitCommand(d, asJSON))
+	root.AddCommand(newInitCommand(d, asJSON), newLoginCommand(d, asJSON), newLogoutCommand(d, asJSON), newStatusCommand(d, asJSON))
 	for _, c := range extra {
 		if c.Args != nil {
 			c.Args = usageArgs(c.Args)

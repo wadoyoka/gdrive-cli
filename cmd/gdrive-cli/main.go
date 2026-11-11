@@ -29,8 +29,17 @@ func run(ctx context.Context) int {
 	}
 	configDir := repository.NewConfigDir(dir)
 	policy := repository.NewPolicyFile(dir)
+	auth := repository.NewAuth(dir)
+	remote := usecase.Remote{
+		Open:   repository.NewDriveOpener(auth),
+		State:  repository.NewStateFile(dir),
+		Locker: repository.NewLockFile(dir),
+	}
 	return cli.Execute(ctx, cli.Deps{
 		Init:     usecase.Init{Dir: configDir, Policy: policy},
+		Login:    usecase.Login{Auth: auth, Remote: remote},
+		Logout:   usecase.Logout{Auth: auth},
+		Status:   usecase.Status{Dir: configDir, Auth: auth, Remote: remote},
 		Policy:   policy,
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
