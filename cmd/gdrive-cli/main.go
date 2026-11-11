@@ -40,6 +40,8 @@ func run(ctx context.Context) int {
 		Login:    usecase.Login{Auth: auth, Remote: remote},
 		Logout:   usecase.Logout{Auth: auth},
 		Status:   usecase.Status{Dir: configDir, Auth: auth, Remote: remote},
+		Mkdir:    usecase.Mkdir{Remote: remote},
+		List:     usecase.List{Remote: remote},
 		Policy:   policy,
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
