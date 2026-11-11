@@ -1,7 +1,12 @@
 // Package usecase は、各コマンドの手順と、それが頼る外部の約束（ポート）を持つ。
 package usecase
 
-import "github.com/wadoyoka/gdrive-cli/internal/domain"
+import (
+	"context"
+	"io"
+
+	"github.com/wadoyoka/gdrive-cli/internal/domain"
+)
 
 // ConfigDir は、設定ディレクトリ。
 type ConfigDir interface {
@@ -16,4 +21,20 @@ type PolicyStore interface {
 	// CreateIfAbsent は、なければ既定の内容で作る。作ったときだけ true を返す。
 	CreateIfAbsent() (created bool, err error)
 	Load() (domain.Policy, error)
+}
+
+// LoginOptions は、ログインの入出力。
+type LoginOptions struct {
+	NoBrowser bool
+	Prompt    io.Writer // URL と案内を書く先（標準エラー）
+	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）
+}
+
+// Authenticator は、Google へのログインとトークンの置き場。
+type Authenticator interface {
+	HasClientSecret() bool
+	ImportClientSecret(path string) error
+	Login(ctx context.Context, opt LoginOptions) error
+	Logout(ctx context.Context) error
+	HasToken() bool
 }
