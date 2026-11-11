@@ -1,0 +1,24 @@
+[tools]
+# ローカル開発と CI（.github/workflows/）で同じバージョンを使う。
+node = "26.13.0"
+trivy = "0.76.1"
+lefthook = "2.2.2"
+
+# パッケージマネージャ。package.json の packageManager と同じ版に揃え、
+# ローカルと CI（.github/workflows/）でロックファイルの解決結果がずれないようにする。
+pnpm = "12.16.1"
+
+# Go 本体。go.mod の go ディレクティブと同じ版に揃える。
+go = "1.27.3"
+# Go のリンター。.golangci.yml（v2 形式）はこの版を前提に書く。
+# CI（.github/workflows/）の lint もこの版で動かす。
+golangci-lint = "2.15.0"
+
+# infra/ の Terraform 用。lefthook の 6-terraform-fmt と `make tf-check` が使う。
+# 実行するのは利用者だけで、Claude は実行しない。
+terraform = "1.14.8"
+
+# `mise install` のついでに Git フック（lefthook.yml）を入れる。
+# CI のように lefthook を入れない環境では警告が出るだけで、install 自体は失敗しない。
+[hooks]
+postinstall = "lefthook install"

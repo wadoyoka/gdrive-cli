@@ -1,0 +1,90 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # PR に含まれるコミットをすべて辿るため、履歴を丸ごと取る。
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          # mise 本体の版。書かないと mise-action がその日の新しい版を入れ、日によって CI の結果が変わりうる。
+          version: 2026.11.2
+          install_args: node pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup toolchain
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.11.2
+          install_args: go golangci-lint
+
+      # Go のビルドキャッシュ・モジュール・golangci-lint の解析の結果を残し、依存を毎回コンパイルし直さないようにする。
+      # 置き場所は決め打ちせず、ツールに聞く。
+      - name: Read Go cache paths
+        id: go-cache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+            echo "lint=$(golangci-lint cache status | sed -n 's/^Dir: //p')"
+          } >> "$GITHUB_OUTPUT"
+
+      # 依存（go.sum）とツールの版（.mise.toml）が同じ間は同じキャッシュを使う。自分のコードの分は
+      # 小さいので、その場でコンパイルし直す。変わったら、前のキャッシュから始めて変わった分だけ作る。
+      - name: Cache Go builds and lint results
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+            ${{ steps.go-cache.outputs.lint }}
+          key: go-${{ runner.arch }}-${{ hashFiles('go.sum', '.mise.toml') }}
+          restore-keys: go-${{ runner.arch }}-
+
+      - name: Lint (golangci-lint)
+        run: golangci-lint run ./...
+
+      - name: Test (go)
+        run: go test ./...
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup trivy
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.11.2
+          install_args: trivy
+
+      - name: Scan (trivy)
+        run: trivy fs .
