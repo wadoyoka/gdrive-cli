@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +59,33 @@ func writeRandomFile(t *testing.T, path string, size int64) {
 	}
 }
 
+// e2eDeleteGuard は、workID を作業用フォルダとして消してよいかを確かめる。消してはいけなければ、その理由を返す。
+// ID が空でないこと、CLI のルートフォルダではないこと、名前が e2e- で始まることを、Drive に問い合わせて確かめる。
+func e2eDeleteGuard(ctx context.Context, remote usecase.Remote, workID string) string {
+	if workID == "" {
+		return "ID が空"
+	}
+	s, err := remote.Connect(ctx)
+	if err != nil {
+		return fmt.Sprintf("Drive に接続できない: %v", err)
+	}
+	root, err := s.Resolver.Root(ctx)
+	if err != nil {
+		return fmt.Sprintf("ルートフォルダを確かめられない: %v", err)
+	}
+	if workID == root.ID {
+		return "ルートフォルダの ID と同じ"
+	}
+	e, err := s.Drive.Get(ctx, workID)
+	if err != nil {
+		return fmt.Sprintf("作業用フォルダを確かめられない: %v", err)
+	}
+	if !strings.HasPrefix(e.Name, "e2e-") {
+		return fmt.Sprintf("名前 %q が e2e- で始まらない", e.Name)
+	}
+	return ""
+}
+
 // TestE2E は、実際の Drive に対する通し試験。GDRIVE_CLI_E2E=1 のときだけ動く。
 // 事前に init と login を済ませておくこと。ルートフォルダの下に /e2e-<時刻> を作り、終わると消す。
 func TestE2E(t *testing.T) {
@@ -90,6 +118,10 @@ func TestE2E(t *testing.T) {
 	// 消すのは、いま作った作業用フォルダの ID だけ。ルートや、ほかのものは消さない。
 	t.Cleanup(func() {
 		cctx := context.Background()
+		if reason := e2eDeleteGuard(cctx, remote, workID); reason != "" {
+			t.Errorf("後片付け: %s を消さない（%s）。手で確かめてから消すこと", work, reason)
+			return
+		}
 		ts, err := auth.TokenSource(cctx)
 		if err != nil {
 			t.Errorf("後片付け: トークンを得られない（%s を手で消すこと）: %v", work, err)
@@ -263,4 +295,66 @@ func TestE2E(t *testing.T) {
 			}
 		}
 	})
+}
+
+// guardDrive は、e2eDeleteGuard を試すための偽の Drive。entries にあるものだけを Get で返す。
+type guardDrive struct {
+	usecase.Drive
+	entries map[string]domain.Entry
+}
+
+func (d guardDrive) Get(_ context.Context, id string) (domain.Entry, error) {
+	e, ok := d.entries[id]
+	if !ok {
+		return domain.Entry{}, domain.Errorf(domain.KindNotFound, "見つかりません")
+	}
+	return e, nil
+}
+
+type guardState struct{}
+
+func (guardState) RootFolderID() (string, error) { return "root-1", nil }
+func (guardState) SetRootFolderID(string) error  { return nil }
+
+type guardLocker struct{}
+
+func (guardLocker) Lock(context.Context) (func(), error) { return func() {}, nil }
+
+func TestE2EDeleteGuard(t *testing.T) {
+	drive := guardDrive{entries: map[string]domain.Entry{
+		// ルートの判定が名前の判定とは別に効くことを確かめるため、ルートにも e2e- で始まる名前を付ける。
+		"root-1": {ID: "root-1", Name: "e2e-root", Type: domain.TypeFolder},
+		"w1":     {ID: "w1", Name: "e2e-123", Type: domain.TypeFolder},
+		"w2":     {ID: "w2", Name: "videos", Type: domain.TypeFolder},
+	}}
+	remote := usecase.Remote{
+		Open:   func(context.Context) (usecase.Drive, error) { return drive, nil },
+		State:  guardState{},
+		Locker: guardLocker{},
+	}
+	cases := []struct {
+		name   string
+		workID string
+		ok     bool
+	}{
+		{"e2e- で始まる作業用フォルダなら消してよい", "w1", true},
+		{"ID が空なら消さない", "", false},
+		{"ルートフォルダの ID なら消さない", "root-1", false},
+		{"名前が e2e- で始まらなければ消さない", "w2", false},
+		{"Drive で確かめられなければ消さない", "nope", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			ctx := context.Background()
+
+			// Act
+			reason := e2eDeleteGuard(ctx, remote, tc.workID)
+
+			// Assert
+			if (reason == "") != tc.ok {
+				t.Errorf("reason = %q, want ok = %v", reason, tc.ok)
+			}
+		})
+	}
 }
