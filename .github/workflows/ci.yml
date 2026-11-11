@@ -88,3 +88,26 @@ jobs:
 
       - name: Scan (trivy)
         run: trivy fs .
+
+      # infra/ の Terraform の設定ミスを調べる。HCL を読むだけで terraform は動かさない。
+      # 既定の設定（trivy.yaml）は vuln と secret だけなので、misconfig はここで別に走らせる。
+      - name: Scan Terraform misconfig (trivy)
+        run: trivy fs --scanners misconfig infra
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup terraform
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.11.2
+          install_args: terraform
+
+      # make tf-check と同じ内容。
+      - name: Check (terraform fmt, init, validate)
+        run: |
+          terraform -chdir=infra fmt -check -recursive
+          terraform -chdir=infra init -backend=false -input=false
+          terraform -chdir=infra validate
