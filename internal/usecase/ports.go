@@ -38,3 +38,20 @@ type Authenticator interface {
 	Logout(ctx context.Context) error
 	HasToken() bool
 }
+
+// Drive は、CLI が使う Google Drive の操作だけを集めたもの。削除と共有の操作は持たない。
+type Drive interface {
+	AccountEmail(ctx context.Context) (string, error)
+	FindRootFolders(ctx context.Context) ([]domain.Entry, error) // ゴミ箱のものも含む。作成日時の古い順
+	CreateRootFolder(ctx context.Context, name string) (domain.Entry, error)
+	Get(ctx context.Context, id string) (domain.Entry, error)                  // ないときは KindNotFound
+	ListChildren(ctx context.Context, parentID string) ([]domain.Entry, error) // ゴミ箱のものを除く。全ページ
+	FindChildren(ctx context.Context, parentID, name string) ([]domain.Entry, error)
+	CreateFolder(ctx context.Context, parentID, name string) (domain.Entry, error)
+	Upload(ctx context.Context, parentID, name, mimeType string, body io.Reader, size int64, progress func(sent int64)) (domain.Entry, error)
+	Download(ctx context.Context, id string, w io.Writer, progress func(received int64)) error
+	Move(ctx context.Context, id, fromParentID, toParentID, newName string) (domain.Entry, error)
+}
+
+// DriveOpener は、ログイン済みの Drive を開く。
+type DriveOpener func(ctx context.Context) (Drive, error)
