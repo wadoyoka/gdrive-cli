@@ -210,6 +210,25 @@ func TestDriveClient(t *testing.T) {
 		}
 	})
 
+	t.Run("フォルダ作成は 503 でもやり直さない", func(t *testing.T) {
+		// Arrange
+		calls := 0
+		c, slept := newTestDrive(t, func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			w.WriteHeader(http.StatusServiceUnavailable)
+		})
+		// Act
+		_, err1 := c.CreateFolder(context.Background(), "P1", "dir")
+		_, err2 := c.CreateRootFolder(context.Background(), "gdrive-cli")
+		// Assert
+		if calls != 2 || len(*slept) != 0 {
+			t.Errorf("calls = %d, slept = %v", calls, *slept)
+		}
+		if domain.KindOf(err1) != domain.KindUnexpected || domain.KindOf(err2) != domain.KindUnexpected {
+			t.Errorf("err1 = %v, err2 = %v", err1, err2)
+		}
+	})
+
 	t.Run("項目への変換", func(t *testing.T) {
 		// Arrange
 		c, _ := newTestDrive(t, func(w http.ResponseWriter, r *http.Request) {

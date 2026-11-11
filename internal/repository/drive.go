@@ -167,13 +167,10 @@ func (c *DriveClient) FindRootFolders(ctx context.Context) ([]domain.Entry, erro
 }
 
 func (c *DriveClient) create(ctx context.Context, f *drive.File) (domain.Entry, error) {
-	var res *drive.File
-	err := c.do(ctx, func() (err error) {
-		res, err = c.svc.Files.Create(f).Fields(entryFields).Context(ctx).Do()
-		return err
-	})
+	// 作成は冪等ではなく、やり直すと同じ名前のフォルダが二重にできるため、やり直さない。
+	res, err := c.svc.Files.Create(f).Fields(entryFields).Context(ctx).Do()
 	if err != nil {
-		return domain.Entry{}, err
+		return domain.Entry{}, mapError(err)
 	}
 	return toEntry(res), nil
 }
