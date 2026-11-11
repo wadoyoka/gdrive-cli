@@ -44,6 +44,7 @@ func run(ctx context.Context) int {
 		List:     usecase.List{Remote: remote},
 		Upload:   usecase.Upload{Remote: remote},
 		Download: usecase.Download{Remote: remote},
+		Move:     usecase.Move{Remote: remote},
 		Policy:   policy,
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,

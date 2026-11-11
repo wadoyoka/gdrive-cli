@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-
 	"github.com/wadoyoka/gdrive-cli/internal/repository"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 )
@@ -29,10 +27,6 @@ func newDeps(t *testing.T) (Deps, *bytes.Buffer, *bytes.Buffer, string) {
 		Stderr: &errb,
 	}
 	return d, &out, &errb, dir
-}
-
-func testMv() *cobra.Command {
-	return &cobra.Command{Use: "mv", RunE: func(*cobra.Command, []string) error { return nil }}
 }
 
 func denyMv(t *testing.T, d Deps, dir string, errb *bytes.Buffer) {
@@ -81,7 +75,7 @@ func TestExecute(t *testing.T) {
 		denyMv(t, d, dir, errb)
 
 		// Act
-		code := executeWith(context.Background(), d, []string{"mv"}, testMv())
+		code := Execute(context.Background(), d, []string{"mv", "/a", "/b"})
 
 		// Assert
 		if code != 7 || !strings.Contains(errb.String(), "拒否") {
@@ -94,7 +88,7 @@ func TestExecute(t *testing.T) {
 		d, _, _, _ := newDeps(t)
 
 		// Act
-		code := executeWith(context.Background(), d, []string{"mv"}, testMv())
+		code := Execute(context.Background(), d, []string{"mv", "/a", "/b"})
 
 		// Assert
 		if code != 3 {
@@ -108,7 +102,7 @@ func TestExecute(t *testing.T) {
 		denyMv(t, d, dir, errb)
 
 		// Act
-		code := executeWith(context.Background(), d, []string{"--json", "mv"}, testMv())
+		code := Execute(context.Background(), d, []string{"--json", "mv", "/a", "/b"})
 
 		// Assert
 		if code != 7 || !strings.Contains(errb.String(), `"kind":"denied"`) {

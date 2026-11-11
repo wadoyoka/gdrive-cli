@@ -22,6 +22,7 @@ type Deps struct {
 	List     usecase.List
 	Upload   usecase.Upload
 	Download usecase.Download
+	Move     usecase.Move
 	Policy   usecase.PolicyStore
 	Stdin    io.Reader
 	Stdout   io.Writer
@@ -35,11 +36,7 @@ var unchecked = []string{"init", "help", "completion", "gdrive-cli"}
 
 // Execute は、args を実行して終了コードを返す。
 func Execute(ctx context.Context, d Deps, args []string) int {
-	return executeWith(ctx, d, args)
-}
-
-func executeWith(ctx context.Context, d Deps, args []string, extra ...*cobra.Command) int {
-	root := newRootCommand(d, extra...)
+	root := newRootCommand(d)
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
 		asJSON, _ := root.PersistentFlags().GetBool("json")
@@ -60,7 +57,7 @@ func usageArgs(f cobra.PositionalArgs) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error { return usageError(f(cmd, args)) }
 }
 
-func newRootCommand(d Deps, extra ...*cobra.Command) *cobra.Command {
+func newRootCommand(d Deps) *cobra.Command {
 	asJSON := new(bool)
 	root := &cobra.Command{
 		Use:           "gdrive-cli",
@@ -86,12 +83,6 @@ func newRootCommand(d Deps, extra ...*cobra.Command) *cobra.Command {
 	root.PersistentFlags().BoolVar(asJSON, "json", false, "結果を JSON で出す")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError(err) })
 	root.AddCommand(newInitCommand(d, asJSON), newLoginCommand(d, asJSON), newLogoutCommand(d, asJSON), newStatusCommand(d, asJSON),
-		newMkdirCommand(d, asJSON), newLsCommand(d, asJSON), newUploadCommand(d, asJSON), newDownloadCommand(d, asJSON))
-	for _, c := range extra {
-		if c.Args != nil {
-			c.Args = usageArgs(c.Args)
-		}
-		root.AddCommand(c)
-	}
+		newMkdirCommand(d, asJSON), newLsCommand(d, asJSON), newUploadCommand(d, asJSON), newDownloadCommand(d, asJSON), newMvCommand(d, asJSON))
 	return root
 }

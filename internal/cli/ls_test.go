@@ -33,6 +33,7 @@ func withRemote(d Deps) Deps {
 	}
 	d.Mkdir = usecase.Mkdir{Remote: r}
 	d.List = usecase.List{Remote: r}
+	d.Move = usecase.Move{Remote: r}
 	return d
 }
 
