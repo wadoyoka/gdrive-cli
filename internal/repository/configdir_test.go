@@ -32,3 +32,50 @@ func TestConfigDir(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultConfigDir(t *testing.T) {
+	t.Run("GDRIVE_CLI_CONFIG_DIR があれば HOME がなくても決まる", func(t *testing.T) {
+		// Arrange
+		t.Setenv("HOME", "")
+		t.Setenv("XDG_CONFIG_HOME", "")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "/tmp/gdrive-cli-test")
+
+		// Act
+		got, err := DefaultConfigDir()
+
+		// Assert
+		if err != nil || got != "/tmp/gdrive-cli-test" {
+			t.Errorf("got = %q, err = %v", got, err)
+		}
+	})
+
+	t.Run("XDG_CONFIG_HOME があれば HOME がなくても決まる", func(t *testing.T) {
+		// Arrange
+		t.Setenv("HOME", "")
+		t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
+
+		// Act
+		got, err := DefaultConfigDir()
+
+		// Assert
+		if err != nil || got != filepath.Join("/tmp/xdg", "gdrive-cli") {
+			t.Errorf("got = %q, err = %v", got, err)
+		}
+	})
+
+	t.Run("どれもなく HOME もなければエラー", func(t *testing.T) {
+		// Arrange
+		t.Setenv("HOME", "")
+		t.Setenv("XDG_CONFIG_HOME", "")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
+
+		// Act
+		_, err := DefaultConfigDir()
+
+		// Assert
+		if err == nil {
+			t.Error("err = nil")
+		}
+	})
+}

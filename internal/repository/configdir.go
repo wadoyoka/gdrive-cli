@@ -10,10 +10,15 @@ import (
 )
 
 // DefaultConfigDir は、環境から設定ディレクトリの場所を決める。
+// ホームディレクトリは、GDRIVE_CLI_CONFIG_DIR と XDG_CONFIG_HOME がどちらも空のときだけ調べる。
 func DefaultConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("ホームディレクトリを調べられません: %w", err)
+	home := ""
+	if os.Getenv("GDRIVE_CLI_CONFIG_DIR") == "" && os.Getenv("XDG_CONFIG_HOME") == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("ホームディレクトリを調べられません: %w", err)
+		}
+		home = h
 	}
 	return domain.ResolveConfigDir(os.Getenv, home), nil
 }

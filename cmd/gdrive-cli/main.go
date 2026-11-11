@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"golang.org/x/term"
 
@@ -15,7 +16,8 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// Ctrl-C だけでなく、エージェントの実行環境などが送る SIGTERM でも止め、download の一時ファイルを片付ける。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	code := run(ctx)
 	stop()
 	os.Exit(code)

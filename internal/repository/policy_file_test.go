@@ -1,9 +1,11 @@
 package repository
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
@@ -82,6 +84,33 @@ func TestPolicyFile(t *testing.T) {
 					t.Errorf("Deny = %v, want %v", got.Deny, c.wantDeny)
 				}
 			})
+		}
+	})
+}
+
+func TestPolicyFileUnknownKeys(t *testing.T) {
+	t.Run("知らないキーは、その名前を日本語のエラーに出す", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		pf := NewPolicyFile(dir)
+		if err := os.WriteFile(pf.Path(), []byte("denny = []\nallow = [\"ls\"]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		_, err := pf.Load()
+
+		// Assert
+		if domain.KindOf(err) != domain.KindDenied {
+			t.Fatalf("err = %v", err)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "denny") || !strings.Contains(msg, "allow") || strings.Contains(msg, "strict mode") {
+			t.Errorf("msg = %q", msg)
+		}
+		var de *domain.Error
+		if !errors.As(err, &de) || !reflect.DeepEqual(de.Details, []string{"1 行目: denny", "2 行目: allow"}) {
+			t.Errorf("details = %q", de.Details)
 		}
 	})
 }

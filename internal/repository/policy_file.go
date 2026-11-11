@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -51,6 +52,20 @@ func unreadable(cause error) error {
 		WithDetails(cause.Error()).Wrap(cause)
 }
 
+// unknownKeys は、知らないキーの名前を挙げた KindDenied を返す。ライブラリの英語の文言は出さない。
+func unknownKeys(serr *toml.StrictMissingError) error {
+	keys := make([]string, 0, len(serr.Errors))
+	details := make([]string, 0, len(serr.Errors))
+	for _, e := range serr.Errors {
+		key := strings.Join(e.Key(), ".")
+		row, _ := e.Position()
+		keys = append(keys, key)
+		details = append(details, fmt.Sprintf("%d 行目: %s", row, key))
+	}
+	return domain.Errorf(domain.KindDenied, "policy.toml に知らないキー（%s）があるため、すべてのコマンドを止めています。書けるキーは deny だけです", strings.Join(keys, ", ")).
+		WithDetails(details...)
+}
+
 // Load は、policy.toml を読む。読めないときは、安全のため KindDenied を返す。
 func (f *PolicyFile) Load() (domain.Policy, error) {
 	body, err := os.ReadFile(f.path)
@@ -63,6 +78,10 @@ func (f *PolicyFile) Load() (domain.Policy, error) {
 	var doc policyDoc
 	dec := toml.NewDecoder(bytes.NewReader(body)).DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
+		var serr *toml.StrictMissingError
+		if errors.As(err, &serr) {
+			return domain.Policy{}, unknownKeys(serr)
+		}
 		return domain.Policy{}, unreadable(err)
 	}
 	p := domain.Policy{Deny: doc.Deny}
