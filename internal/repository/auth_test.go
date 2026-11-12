@@ -837,7 +837,9 @@ func TestAuthKeyCreation(t *testing.T) {
 func TestAuthEncryptedToken(t *testing.T) {
 	t.Run("ログインのあと token.enc は暗号化されていて、平文のアクセストークンを含まない", func(t *testing.T) {
 		// Arrange
-		g := newFakeGoogle(t, func(url.Values) (int, string) { return http.StatusOK, okToken })
+		g := newFakeGoogle(t, func(url.Values) (int, string) {
+			return http.StatusOK, `{"access_token":"access-tok-sentinel","refresh_token":"refresh-tok-sentinel","token_type":"Bearer","expires_in":3600}`
+		})
 		a := g.auth(t)
 		writeClientSecret(t, a)
 		a.OpenBrowser = func(raw string) error {
@@ -854,7 +856,7 @@ func TestAuthEncryptedToken(t *testing.T) {
 			t.Fatal(err)
 		}
 		body, _ := os.ReadFile(filepath.Join(a.Dir, "token.enc"))
-		if bytes.Contains(body, []byte("a1")) || bytes.Contains(body, []byte("r1")) {
+		if bytes.Contains(body, []byte("access-tok")) || bytes.Contains(body, []byte("refresh-tok")) {
 			t.Errorf("平文が含まれる: %s", body)
 		}
 	})
@@ -1020,6 +1022,12 @@ func TestAuthInspect(t *testing.T) {
 			writeLegacy(t, a, "token.json")
 			writeLegacy(t, a, "client_secret.json")
 		}, usecase.AuthInspection{KeyStore: "os", Problem: legacy}, 0, false},
+		{"何もなくて不正な GDRIVE_CLI_KEYRING", func(_ *testing.T, a *Auth) {
+			a.Keys = invalidKeyStore{mode: "fiel"}
+		}, usecase.AuthInspection{KeyStore: "fiel"}, domain.KindUsage, true},
+		{"何もなくて KeyStore が使えない", func(_ *testing.T, a *Auth) {
+			a.Keys.(*memKeys).loadErr = domain.Errorf(domain.KindSetup, "キーチェーンが使えません")
+		}, usecase.AuthInspection{KeyStore: "os"}, domain.KindSetup, true},
 		{"KeyStore が使えない", func(t *testing.T, a *Auth) {
 			writeClientSecret(t, a)
 			a.Keys.(*memKeys).loadErr = domain.Errorf(domain.KindSetup, "キーチェーンが使えません")
@@ -1070,4 +1078,45 @@ func TestAuthLogoutEncrypted(t *testing.T) {
 			t.Error("鍵が消えた")
 		}
 	})
+}
+
+func TestAuthLogoutKeyStoreFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		keys func() KeyStore
+		kind domain.ErrorKind
+	}{
+		{"キーチェーンが使えなければ KindSetup", func() KeyStore {
+			m := newMemKeys()
+			m.loadErr = domain.Errorf(domain.KindSetup, "キーチェーンが使えません")
+			return m
+		}, domain.KindSetup},
+		{"不正な GDRIVE_CLI_KEYRING なら KindUsage", func() KeyStore { return invalidKeyStore{mode: "fiel"} }, domain.KindUsage},
+	}
+	for _, tt := range tests {
+		t.Run("ログアウト: "+tt.name+"で、token.enc を消さず取り消しもしない", func(t *testing.T) {
+			// Arrange
+			g := newFakeGoogle(t, func(url.Values) (int, string) { return http.StatusOK, okToken })
+			a := g.auth(t)
+			writeToken(t, a, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+			a.Keys = tt.keys()
+
+			// Act
+			err := a.Logout(context.Background())
+
+			// Assert
+			if domain.KindOf(err) != tt.kind {
+				t.Fatalf("kind = %v, err = %v", domain.KindOf(err), err)
+			}
+			if !a.HasToken() {
+				t.Error("token.enc を消してしまった")
+			}
+			g.mu.Lock()
+			n := len(g.revoked)
+			g.mu.Unlock()
+			if n != 0 {
+				t.Errorf("revoked = %d", n)
+			}
+		})
+	}
 }

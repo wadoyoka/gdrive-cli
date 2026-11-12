@@ -259,6 +259,9 @@ func (a *Auth) Inspect() (usecase.AuthInspection, error) {
 	insp := usecase.AuthInspection{KeyStore: a.Keys.Kind()}
 	hasCS, hasTok := a.HasClientSecret(), a.HasToken()
 	if !hasCS && !hasTok {
+		if _, _, err := a.loadKey(); err != nil { // 見つかったかは問わない。置き場が使えるかだけを見る
+			return insp, err
+		}
 		if a.legacyExists() {
 			insp.Problem = msgLegacy
 		}
@@ -527,6 +530,12 @@ func readPasted(opt usecase.LoginOptions, state string, results chan<- callbackR
 
 // Logout は、Google 側でトークンを取り消してから token.enc と旧 token.json を消す。鍵は消さない。
 func (a *Auth) Logout(ctx context.Context) error {
+	// 鍵の置き場そのものが使えないときは、何も消さずにそのエラーを返す（トークンは Google 側でまだ有効）。
+	if a.HasToken() {
+		if _, _, keyErr := a.loadKey(); keyErr != nil {
+			return keyErr
+		}
+	}
 	tok, err := a.loadToken()
 	if errors.Is(err, os.ErrNotExist) {
 		if rmErr := os.Remove(filepath.Join(a.Dir, legacyTokenName)); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
