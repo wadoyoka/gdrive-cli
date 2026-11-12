@@ -17,11 +17,12 @@ func (f fakeDir) Ensure() (bool, error) { return f.created, nil }
 type fakePolicy struct {
 	path    string
 	created bool
+	deny    []string
 }
 
 func (f fakePolicy) Path() string                  { return f.path }
 func (f fakePolicy) CreateIfAbsent() (bool, error) { return f.created, nil }
-func (f fakePolicy) Load() (domain.Policy, error)  { return domain.Policy{}, nil }
+func (f fakePolicy) Load() (domain.Policy, error)  { return domain.Policy{Deny: f.deny}, nil }
 
 func TestInit(t *testing.T) {
 	t.Run("偽物の返した値が結果になる", func(t *testing.T) {

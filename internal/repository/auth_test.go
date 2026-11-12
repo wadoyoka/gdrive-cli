@@ -702,6 +702,61 @@ func TestAuthLogout(t *testing.T) {
 	})
 }
 
+func TestAuthClientSecretProjectID(t *testing.T) {
+	t.Run("ClientSecretProjectID は installed.project_id を返し、ファイルを保存しない", func(t *testing.T) {
+		// Arrange
+		keys := newMemKeys()
+		a := &Auth{Dir: t.TempDir(), Keys: keys}
+		src := filepath.Join(t.TempDir(), "cs.json")
+		body := strings.Replace(testClientSecret, `"client_id"`, `"project_id":"my-proj-123","client_id"`, 1)
+		if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		got, err := a.ClientSecretProjectID(src)
+
+		// Assert
+		if err != nil || got != "my-proj-123" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+		if a.HasClientSecret() || keys.savedCount() != 0 {
+			t.Error("保存している")
+		}
+	})
+
+	t.Run("project_id がなければ空文字", func(t *testing.T) {
+		// Arrange
+		a := &Auth{Dir: t.TempDir(), Keys: newMemKeys()}
+
+		// Act
+		got, err := a.ClientSecretProjectID(writeSrcSecret(t))
+
+		// Assert
+		if err != nil || got != "" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+	})
+
+	t.Run("壊れた JSON と読めないパスは KindUsage", func(t *testing.T) {
+		// Arrange
+		a := &Auth{Dir: t.TempDir(), Keys: newMemKeys()}
+		bad := filepath.Join(t.TempDir(), "bad.json")
+		if err := os.WriteFile(bad, []byte(`{not json`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		_, err1 := a.ClientSecretProjectID(bad)
+		_, err2 := a.ClientSecretProjectID(filepath.Join(t.TempDir(), "none.json"))
+
+		// Assert
+		if domain.KindOf(err1) != domain.KindUsage || domain.KindOf(err2) != domain.KindUsage {
+			t.Errorf("err1=%v err2=%v", err1, err2)
+		}
+	})
+}
+
 func writeSrcSecret(t *testing.T) string {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), "cs.json")

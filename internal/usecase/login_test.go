@@ -20,6 +20,19 @@ type fakeAuth struct {
 	keyStore  string
 	problem   string
 	inspErr   error
+
+	// ClientSecretProjectID の偽物。
+	secretProjects map[string]string // path -> project_id
+	secretErrs     map[string]error  // path -> 検めの失敗
+	checked        []string
+}
+
+func (a *fakeAuth) ClientSecretProjectID(path string) (string, error) {
+	a.checked = append(a.checked, path)
+	if err := a.secretErrs[path]; err != nil {
+		return "", err
+	}
+	return a.secretProjects[path], nil
 }
 
 func (a *fakeAuth) HasClientSecret() bool { return a.hasSecret }

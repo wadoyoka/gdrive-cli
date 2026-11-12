@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -62,6 +63,26 @@ func TestPolicy(t *testing.T) {
 			if !strings.Contains(DefaultPolicyTOML, n) {
 				t.Errorf("%q がない", n)
 			}
+		}
+	})
+
+	t.Run("CommandNames に setup がある", func(t *testing.T) {
+		// Arrange / Act
+		ok := slices.Contains(CommandNames, "setup")
+
+		// Assert
+		if !ok {
+			t.Error("setup がない")
+		}
+	})
+
+	t.Run("ひな形の「書ける名前」に setup がある", func(t *testing.T) {
+		// Arrange / Act
+		ok := strings.Contains(DefaultPolicyTOML, "# 書ける名前: setup, login, logout, status, mkdir, upload, download, mv, ls")
+
+		// Assert
+		if !ok {
+			t.Errorf("ひな形: %s", DefaultPolicyTOML)
 		}
 	})
 }

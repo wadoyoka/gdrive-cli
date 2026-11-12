@@ -209,16 +209,39 @@ func (a *Auth) config() (*oauth2.Config, error) {
 	return cfg, nil
 }
 
+// readClientSecretFile は、path の client_secret を読み、形を検める。中身と installed.project_id を返す。
+func readClientSecretFile(path string) (data []byte, projectID string, err error) {
+	data, err = os.ReadFile(path) //nolint:gosec // 利用者が指定したパスを読むのが目的
+	if err != nil {
+		return nil, "", domain.Errorf(domain.KindUsage, "client_secret のファイルを読めません: %s", path).Wrap(err)
+	}
+	if _, err := google.ConfigFromJSON(data, drive.DriveFileScope); err != nil {
+		return nil, "", domain.Errorf(domain.KindUsage, "client_secret の形式が正しくありません（デスクトップアプリの OAuth クライアントの JSON を指定してください）").
+			WithDetails(err.Error()).Wrap(err)
+	}
+	var doc struct {
+		Installed struct {
+			ProjectID string `json:"project_id"`
+		} `json:"installed"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, "", domain.Errorf(domain.KindUsage, "client_secret の形式が正しくありません").Wrap(err)
+	}
+	return data, doc.Installed.ProjectID, nil
+}
+
+// ClientSecretProjectID は、path の client_secret を検めて、installed.project_id を返す。何も保存しない。
+func (a *Auth) ClientSecretProjectID(path string) (string, error) {
+	_, id, err := readClientSecretFile(path)
+	return id, err
+}
+
 // ImportClientSecret は、path の client_secret を検めて、暗号化して設定ディレクトリへ 0600 で置く。
 // 鍵がなければここで作る（鍵を作るのはここだけ）。
 func (a *Auth) ImportClientSecret(path string) error {
-	data, err := os.ReadFile(path) //nolint:gosec // 利用者が指定したパスを読むのが目的
+	data, _, err := readClientSecretFile(path)
 	if err != nil {
-		return domain.Errorf(domain.KindUsage, "client_secret のファイルを読めません: %s", path).Wrap(err)
-	}
-	if _, err := google.ConfigFromJSON(data, drive.DriveFileScope); err != nil {
-		return domain.Errorf(domain.KindUsage, "client_secret の形式が正しくありません（デスクトップアプリの OAuth クライアントの JSON を指定してください）").
-			WithDetails(err.Error()).Wrap(err)
+		return err
 	}
 	key, created, err := a.ensureKey(context.Background())
 	if err != nil {

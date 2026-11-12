@@ -253,7 +253,7 @@ Google 側でトークンを無効化（revoke）してから、トークンフ�
 ```toml
 # gdrive-cli で実行を拒否するコマンドの一覧。
 # ここに書いたコマンドを実行しようとすると、終了コード 7 で止まる。
-# 書ける名前: login, logout, status, mkdir, upload, download, mv, ls
+# 書ける名前: setup, login, logout, status, mkdir, upload, download, mv, ls
 # 例: deny = ["mv", "download"]
 deny = []
 ```

@@ -22,6 +22,7 @@ type stubAuth struct {
 
 func (*stubAuth) HasClientSecret() bool                             { return true }
 func (*stubAuth) ImportClientSecret(string) error                   { return nil }
+func (*stubAuth) ClientSecretProjectID(string) (string, error)      { return "", nil }
 func (*stubAuth) Login(context.Context, usecase.LoginOptions) error { return nil }
 func (s *stubAuth) Logout(context.Context) error                    { s.token = false; return nil }
 func (s *stubAuth) HasToken() bool                                  { return s.token }

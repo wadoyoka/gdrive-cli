@@ -42,6 +42,9 @@ type AuthInspection struct {
 type Authenticator interface {
 	HasClientSecret() bool
 	ImportClientSecret(path string) error
+	// ClientSecretProjectID は、path の JSON を検めて、installed.project_id を返す（保存はしない）。
+	// 読めない・形が違うときは ImportClientSecret と同じ KindUsage。project_id がなければ ""。
+	ClientSecretProjectID(path string) (string, error)
 	Login(ctx context.Context, opt LoginOptions) error
 	Logout(ctx context.Context) error
 	HasToken() bool
@@ -90,4 +93,11 @@ type CloudSetup interface {
 	DescribeProject(ctx context.Context, id string) (p CloudProject, found bool, err error)
 	CreateProject(ctx context.Context, id string) error // ID が使われていれば KindConflict
 	EnableDrive(ctx context.Context, id string) error
+}
+
+// SetupPrompter は、setup が人に尋ねるための窓口。cli が実装する。
+type SetupPrompter interface {
+	Ask(question, def string) (string, error) // Enter だけなら def。入力の終わりは io.EOF
+	Confirm(question string) (bool, error)    // y/N。既定は false
+	Say(format string, args ...any)           // 案内を1行（標準エラー）
 }
