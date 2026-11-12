@@ -62,6 +62,13 @@ linters:
           deny:
             - pkg: github.com/spf13/cobra
               desc: cobra は cli と cmd の中だけで使います。
+        keyring-only-in-repository:
+          files:
+            - "**/*.go"
+            - "!**/internal/repository/**"
+          deny:
+            - pkg: github.com/zalando/go-keyring
+              desc: キーチェーンは repository の中だけで使います。
         exec-only-in-repository:
           files:
             - "**/*.go"

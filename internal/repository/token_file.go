@@ -8,7 +8,7 @@ import (
 
 // writeFileAtomic は、同じディレクトリの一時ファイルに書いてから名前を変える。
 // 権限は perm にそろえる。
-func writeFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
+func writeFileAtomic(path string, data []byte, perm os.FileMode) (err error) { //nolint:unparam // 今は 0600 だけだが、権限は呼び出し側が決める
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("一時ファイルを作れません: %w", err)
