@@ -18,15 +18,30 @@ func newStatusCommand(d Deps, asJSON *bool) *cobra.Command {
 			case *asJSON:
 				werr = writeJSON(d.Stdout, res)
 			case res.LoggedIn:
-				_, werr = fmt.Fprintf(d.Stdout, "設定ディレクトリ: %s\nログイン: 済み（%s）\nルートフォルダ: %s\n",
-					res.ConfigDir, res.Email, res.RootFolderLink)
+				_, werr = fmt.Fprintf(d.Stdout, "設定ディレクトリ: %s\n鍵の置き場所: %s\nログイン: 済み（%s）\nルートフォルダ: %s\n",
+					res.ConfigDir, keyStoreLabel(res.KeyStore), res.Email, res.RootFolderLink)
 			default:
-				_, werr = fmt.Fprintf(d.Stdout, "設定ディレクトリ: %s\nログイン: していません\n", res.ConfigDir)
+				_, werr = fmt.Fprintf(d.Stdout, "設定ディレクトリ: %s\n鍵の置き場所: %s\nログイン: していません\n", res.ConfigDir, keyStoreLabel(res.KeyStore))
+				if werr == nil && res.Problem != "" {
+					_, werr = fmt.Fprintf(d.Stdout, "理由: %s\n", res.Problem)
+				}
 			}
 			if runErr != nil {
 				return runErr
 			}
 			return werr
 		},
+	}
+}
+
+// keyStoreLabel は、鍵の置き場所の種類を表示用の文言にする。
+func keyStoreLabel(kind string) string {
+	switch kind {
+	case "os":
+		return "OS のキーチェーン"
+	case "file":
+		return "設定ディレクトリのファイル（key）"
+	default:
+		return kind
 	}
 }

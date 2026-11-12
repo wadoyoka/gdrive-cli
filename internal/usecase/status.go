@@ -17,6 +17,8 @@ type Status struct {
 type StatusResult struct {
 	ConfigDir      string `json:"configDir"`
 	LoggedIn       bool   `json:"loggedIn"`
+	KeyStore       string `json:"keyStore"`
+	Problem        string `json:"problem,omitempty"`
 	Email          string `json:"email,omitempty"`
 	RootFolderID   string `json:"rootFolderId,omitempty"`
 	RootFolderLink string `json:"rootFolderLink,omitempty"`
@@ -25,8 +27,18 @@ type StatusResult struct {
 // Run は、状態を返す。ログインしていなければ、LoggedIn=false の結果と KindSetup を両方返す。
 func (u Status) Run(ctx context.Context) (StatusResult, error) {
 	res := StatusResult{ConfigDir: u.Dir.Path()}
-	if !u.Auth.HasToken() {
-		return res, domain.Errorf(domain.KindSetup, "ログインしていません。gdrive-cli login を実行してください")
+	insp, err := u.Auth.Inspect()
+	res.KeyStore = insp.KeyStore
+	if err != nil {
+		return res, err
+	}
+	if !insp.Token {
+		res.Problem = insp.Problem
+		msg := insp.Problem
+		if msg == "" {
+			msg = "ログインしていません。gdrive-cli login を実行してください"
+		}
+		return res, domain.Errorf(domain.KindSetup, "%s", msg)
 	}
 	s, err := u.Remote.Connect(ctx)
 	if err != nil {

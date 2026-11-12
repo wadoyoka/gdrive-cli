@@ -31,13 +31,22 @@ type LoginResult struct {
 
 // Run は、client_secret の取り込み、ログイン、ルートフォルダの解決を順に行う。
 func (u Login) Run(ctx context.Context, in LoginInput) (LoginResult, error) {
-	switch {
-	case in.ClientSecretPath != "":
+	if in.ClientSecretPath != "" {
 		if err := u.Auth.ImportClientSecret(in.ClientSecretPath); err != nil {
 			return LoginResult{}, err
 		}
-	case !u.Auth.HasClientSecret():
-		return LoginResult{}, domain.Errorf(domain.KindSetup, "初回は --client-secret <JSON のパス> を指定してください")
+	} else {
+		insp, err := u.Auth.Inspect()
+		if err != nil {
+			return LoginResult{}, err
+		}
+		if !insp.ClientSecret {
+			msg := insp.Problem
+			if msg == "" {
+				msg = "初回は --client-secret <JSON のパス> を指定してください"
+			}
+			return LoginResult{}, domain.Errorf(domain.KindSetup, "%s", msg)
+		}
 	}
 	if err := u.Auth.Login(ctx, LoginOptions{NoBrowser: in.NoBrowser, Prompt: in.Prompt, Input: in.Input}); err != nil {
 		return LoginResult{}, err

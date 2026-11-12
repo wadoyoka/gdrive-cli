@@ -45,6 +45,7 @@ type Authenticator interface {
 	Login(ctx context.Context, opt LoginOptions) error
 	Logout(ctx context.Context) error
 	HasToken() bool
+	Inspect() (AuthInspection, error)
 }
 
 // Drive は、CLI が使う Google Drive の操作だけを集めたもの。削除と共有の操作は持たない。
