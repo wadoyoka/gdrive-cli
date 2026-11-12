@@ -98,7 +98,8 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultConfigDir: %v", err)
 	}
-	auth := repository.NewAuth(dir)
+	keys := repository.NewKeyStore(dir, os.Getenv("GDRIVE_CLI_KEYRING"))
+	auth := repository.NewAuth(dir, keys, repository.NewLockFile(dir).Lock)
 	remote := usecase.Remote{
 		Open:   repository.NewDriveOpener(auth),
 		State:  repository.NewStateFile(dir),

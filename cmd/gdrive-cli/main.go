@@ -31,7 +31,8 @@ func run(ctx context.Context) int {
 	}
 	configDir := repository.NewConfigDir(dir)
 	policy := repository.NewPolicyFile(dir)
-	auth := repository.NewAuth(dir)
+	keys := repository.NewKeyStore(dir, os.Getenv("GDRIVE_CLI_KEYRING"))
+	auth := repository.NewAuth(dir, keys, repository.NewLockFile(dir).Lock)
 	remote := usecase.Remote{
 		Open:   repository.NewDriveOpener(auth),
 		State:  repository.NewStateFile(dir),

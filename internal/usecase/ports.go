@@ -30,6 +30,14 @@ type LoginOptions struct {
 	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）。Login が戻ったあとも読み続けることがあるので、同じ Reader を使い回さないこと
 }
 
+// AuthInspection は、保存したものが今の鍵で読めるかの結果。
+type AuthInspection struct {
+	KeyStore     string // "os" か "file"
+	ClientSecret bool   // client_secret.enc があり、今の鍵で読める
+	Token        bool   // token.enc があり、今の鍵で読める
+	Problem      string // 読めない理由。問題がなければ ""
+}
+
 // Authenticator は、Google へのログインとトークンの置き場。
 type Authenticator interface {
 	HasClientSecret() bool

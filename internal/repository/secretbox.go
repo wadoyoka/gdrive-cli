@@ -28,7 +28,7 @@ type sealedSecret struct {
 
 // newKey は、32 バイトの乱数の鍵を返す。
 func newKey() ([]byte, error) {
-	key := make([]byte, 32)
+	key := make([]byte, keyLength)
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("鍵を作れません: %w", err)
 	}
@@ -46,7 +46,7 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 }
 
 // sealSecret は、AES-256-GCM で暗号化する。AAD に種類を入れ、ノンスは毎回乱数にする。
-func sealSecret(key []byte, kind string, plaintext []byte) ([]byte, error) { //nolint:unparam // client_secret は次のタスクで使う
+func sealSecret(key []byte, kind string, plaintext []byte) ([]byte, error) {
 	gcm, err := newGCM(key)
 	if err != nil {
 		return nil, fmt.Errorf("暗号化の準備ができません: %w", err)
