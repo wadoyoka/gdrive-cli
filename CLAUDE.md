@@ -19,10 +19,10 @@ Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`
 - Claude のセッションの URL（`Claude-Session:` の行など）は入れない（commitlint の `no-claude-session-url` が落とす）。
 - `--no-verify` は使わない。
 
-## Terraform
+## gcloud
 
-- Terraform は Claude が実行しない（利用者の指示）。`init`、`fmt`、`validate`、`plan`、`apply` のどれも実行しない。確かめは利用者が行う。
-- `infra/` を含むコミットは、terraform を呼ぶフックだけを外して行う: `LEFTHOOK_EXCLUDE=6-terraform-fmt git commit ...`
+- Claude は、本物の gcloud で GCP を変えるコマンド（`projects create`、`services enable` など）を実行しない。`gdrive-cli setup` を本物の gcloud で動かすのは利用者。
+- テストは偽物の gcloud と偽物のキーチェーンで行う。本物の OS のキーチェーンに触れるテストを書かない。
 
 ## 層の分け方
 

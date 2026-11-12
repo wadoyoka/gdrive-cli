@@ -2,10 +2,6 @@
 client_secret*.json
 token.json
 
-# Terraform
-*.tfstate*
-.terraform/
-
 # `go build` が直下に出す実行ファイル
 /gdrive-cli
 

@@ -8,7 +8,6 @@ scan:
   skip-dirs:
     - node_modules
     - trash
-    - infra/.terraform
 # trivy は既定で、開発用の依存（devDependencies とその先）の脆弱性を調べない。
 # commitlint のように手元や CI で動くものもあるので、開発用の依存も調べる。
 pkg:

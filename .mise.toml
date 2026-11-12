@@ -14,10 +14,6 @@ go = "1.27.3"
 # CI（.github/workflows/）の lint もこの版で動かす。
 golangci-lint = "2.15.0"
 
-# infra/ の Terraform 用。lefthook の 6-terraform-fmt と `make tf-check` が使う。
-# 実行するのは利用者だけで、Claude は実行しない。
-terraform = "1.14.8"
-
 # `mise install` のついでに Git フック（lefthook.yml）を入れる。
 # CI のように lefthook を入れない環境では警告が出るだけで、install 自体は失敗しない。
 [hooks]
