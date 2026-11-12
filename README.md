@@ -150,9 +150,11 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 すべてを消すとき: 設定ディレクトリを消し、キーチェーンの `gdrive-cli` の項目も消す。macOS の例は次のとおり。
 
 ```bash
-rm -r ~/.config/gdrive-cli
+rm -r <設定ディレクトリの絶対パス>
 security delete-generic-password -s gdrive-cli -a <設定ディレクトリの絶対パス>
 ```
+
+`<設定ディレクトリの絶対パス>` は、実際に使っているディレクトリに置き換える。`GDRIVE_CLI_CONFIG_DIR` や `XDG_CONFIG_HOME` を設定していると既定の `~/.config/gdrive-cli` とは限らないので、先に `gdrive-cli status` を実行して、表示される「設定ディレクトリ」で確かめる。消したものは元に戻せない。ドライブにある CLI のファイルは消えない。
 
 ## コマンドと例
 
