@@ -17,9 +17,7 @@ type stubAuth struct {
 	token    bool
 	keyStore string
 	problem  string
-	// 偽物が持つ鍵とトークンの文字列。出力に出てはいけない。
-	keyMaterial string
-	tokenText   string
+	inspErr  error
 }
 
 func (*stubAuth) HasClientSecret() bool                             { return true }
@@ -28,7 +26,7 @@ func (*stubAuth) Login(context.Context, usecase.LoginOptions) error { return nil
 func (s *stubAuth) Logout(context.Context) error                    { s.token = false; return nil }
 func (s *stubAuth) HasToken() bool                                  { return s.token }
 func (s *stubAuth) Inspect() (usecase.AuthInspection, error) {
-	return usecase.AuthInspection{KeyStore: s.keyStore, ClientSecret: true, Token: s.token, Problem: s.problem}, nil
+	return usecase.AuthInspection{KeyStore: s.keyStore, ClientSecret: true, Token: s.token, Problem: s.problem}, s.inspErr
 }
 
 // stubDrive は、status に必要な 2 つだけを持つ偽の Drive。
@@ -143,27 +141,43 @@ func TestStatusCommand(t *testing.T) {
 	})
 
 	t.Run("status --json に鍵もトークンも含まれない", func(t *testing.T) {
-		// Arrange
-		const sentinelA = "KEY<<zq9#sentinel>>"
-		const sentinelB = "TOKEN<<zq9#sentinel>>"
-		d, out, errb, _ := newDeps(t)
-		d = withStubAuth(d, &stubAuth{token: true, keyStore: "os", keyMaterial: sentinelA, tokenText: sentinelB})
-		initAndClear(t, d, out, errb)
-
-		// Act
-		code := Execute(context.Background(), d, []string{"--json", "status"})
-
-		// Assert
-		var got map[string]any
-		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-			t.Fatalf("json: %v", err)
+		allowed := map[string]bool{
+			"configDir": true, "loggedIn": true, "keyStore": true, "problem": true,
+			"email": true, "rootFolderId": true, "rootFolderLink": true,
 		}
-		if code != 0 || got["keyStore"] != "os" {
-			t.Errorf("code=%d got=%v", code, got)
+		const sentinel = "secret-key_SENTINEL-9f"
+		cases := []struct {
+			name string
+			auth *stubAuth
+		}{
+			{"ログイン済み", &stubAuth{token: true, keyStore: "os"}},
+			{"未ログインで理由あり", &stubAuth{keyStore: "file", problem: "鍵が合いません"}},
+			{"鍵の置き場所のエラー", &stubAuth{keyStore: "os", inspErr: domain.Errorf(domain.KindSetup, "%s", sentinel)}},
 		}
-		for _, bad := range []string{sentinelA, sentinelB} {
-			if strings.Contains(out.String(), bad) || strings.Contains(errb.String(), bad) {
-				t.Errorf("%q が出力に含まれた", bad)
+		for _, c := range cases {
+			// Arrange
+			d, out, errb, _ := newDeps(t)
+			d = withStubAuth(d, c.auth)
+			initAndClear(t, d, out, errb)
+
+			// Act
+			Execute(context.Background(), d, []string{"--json", "status"})
+
+			// Assert
+			var got map[string]any
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatalf("%s: json: %v: %q", c.name, err, out.String())
+			}
+			for k := range got {
+				if !allowed[k] {
+					t.Errorf("%s: 想定外のキー %q", c.name, k)
+				}
+			}
+			if _, ok := got["keyStore"]; !ok {
+				t.Errorf("%s: keyStore がない", c.name)
+			}
+			if strings.Contains(out.String(), sentinel) {
+				t.Errorf("%s: JSON にエラーの文言が含まれた: %q", c.name, out.String())
 			}
 		}
 	})
