@@ -57,7 +57,7 @@ gdrive-cli setup --client-secret ~/Downloads/client_secret_xxx.json
 | `--client-secret <path>` | ダウンロード済みの JSON のパス。指定すると、手作業の案内と JSON のパスの質問を飛ばす |
 | `--no-browser` | ブラウザを開かない。手作業の画面の URL を表示するだけにし、ログインは `login --no-browser` と同じ流れにする |
 
-`setup` は人が端末で実行するコマンド。標準入力と標準エラーが端末でなければ、何もせずに終了コード 2 で止まる。`--json` にも対応しない（終了コード 2）。
+`setup` は人が端末で実行するコマンド。標準入力と標準エラーが端末でなければ、何もせずに終了コード 2 で止まる。`--json` にも対応しない（終了コード 2）。途中で Ctrl-C を押すと、質問の答えを待たずに「中止しました」と出して終了コード 2 で止まる。
 
 流れ（済んでいる手順は飛ばすので、何度実行しても同じ結果になる）
 
@@ -65,18 +65,23 @@ gdrive-cli setup --client-secret ~/Downloads/client_secret_xxx.json
 2. 拒否リストに `setup` か `login` があれば、終了コード 7 で止まる。
 3. 暗号化の鍵の置き場所が使えるかを、GCP を変える前に確かめる（使えなければ終了コード 3）。
 4. gcloud が入っていて、ログイン済みかを確かめる。どちらかが欠けていれば、終了コード 3 で案内を出す。
-5. プロジェクト ID を決める。`--project` がなければ聞く。既定値は `gdrive-cli-` に小文字英数字 6 文字を付けたもので、Enter だけならそれを使う。
-6. プロジェクトを確かめ、なければ作る。表示名は `gdrive-cli`。組織やフォルダには属させず、課金アカウントも紐づけない。ID が他の人に使われていれば、対話なら聞き直し、`--project` なら終了コード 5。削除予定の状態なら、`gcloud projects undelete <id>` で戻す方法を案内して止まる（終了コード 3）。
+5. プロジェクト ID を決める。`--project` があれば、それを使う（下の既定値より優先する）。なければ聞き、Enter だけなら既定値を使う。既定値は次の順で決まる。
+   1. `--client-secret` があれば、その JSON の `project_id`。JSON は gcloud を呼ぶ前に検める（読めない・形が違えば、gcloud を呼ばずに終了コード 2）。
+   2. なければ、取り込み済みのクライアントシークレット（`client_secret.enc`）の `project_id`。
+   3. どちらもなければ、`gdrive-cli-` に小文字英数字 6 文字を付けたもの。
+
+   このため、一度済ませたあとで `--project` なしに実行し直しても、Enter だけなら同じプロジェクトを使い、新しいプロジェクトは作らない。
+6. プロジェクトを確かめ、なければ作る。表示名は `gdrive-cli`。組織やフォルダには属させず、課金アカウントも紐づけない。ID が他の人に使われていれば、対話なら聞き直し、`--project` なら終了コード 5。削除予定の状態なら、`gcloud projects undelete <id>` で戻す方法を案内して止まる（終了コード 3）。プロジェクトが決まったら、「やり直すときは `gdrive-cli setup --project <id>` を使ってください」と表示する。途中で失敗してやり直すときは、この形で実行すると、同じプロジェクトの続きから進む。
 7. Drive API（`drive.googleapis.com`）を有効にする。作った直後は失敗することがあるので、数回やり直す。
 8. 手作業（次の「2. 手作業」）の手順を、プロジェクト ID 入りの URL で表示し、ブラウザで開く。クライアントシークレットが取り込み済みで復号できるとき、または `--client-secret` を指定したときは飛ばす。
-9. ダウンロードした JSON のパスを聞いて、暗号化して取り込む。JSON の `project_id` が手順 6 のプロジェクトと違えば、警告して続けるかを聞く。
-10. ログインする（`login` と同じ処理）。ログイン済みで、JSON を取り込み直していなければ飛ばす。
+9. ダウンロードした JSON のパスを聞いて、暗号化して取り込む。デスクトップアプリのクライアントの JSON でなければ（ウェブアプリケーションのクライアントのものなど）、理由を出して聞き直す。JSON の `project_id` が手順 6 のプロジェクトと違えば、警告して続けるかを聞く。
+10. ログインする（`login` と同じ処理）。ログイン済みで、JSON を取り込み直していなければ飛ばす。ただし、Google 側でトークンが無効になっている（取り消された、期限が切れたなど）と分かったときは、飛ばさずにログインし直す。
 11. プロジェクト、gcloud のアカウント、ログインした Google アカウント、ルートフォルダのリンク、鍵の置き場所を表示する。
 
 `setup` が GCP に加える変更は、プロジェクトの作成と Drive API の有効化だけ。gcloud は、`auth list`、`projects describe`、`projects create`、`services enable drive.googleapis.com` の4つしか呼ばない（毎回 `--quiet` を付け、標準入力はつながない）。
 
 - gcloud のアカウント（プロジェクトの持ち主）と、ログインする Google アカウント（ドライブの持ち主）は、別でもよい。
-- 2台目の PC では、`setup` を使わずに、`init` と `login --client-secret <保管しておいた JSON>` だけでもよい。`setup` を使っても、済んでいる手順は飛ばされる。
+- 2台目の PC では、`setup` を使わずに、`init` と `login --client-secret <保管しておいた JSON>` だけでもよい。`setup` を使っても、済んでいる手順は飛ばされる。`setup --client-secret <保管しておいた JSON>` なら、JSON の `project_id` が ID の既定値になるので、Enter だけで同じプロジェクトを使う（gcloud のアカウントからそのプロジェクトが見えれば、新しく作らない）。
 
 ### 2. 手作業（OAuth 同意画面とクライアント）
 
@@ -144,6 +149,7 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 - `GDRIVE_CLI_KEYRING=file` では、鍵が同じディレクトリにあるので、守りは暗号化しない場合とほぼ同じになる。キーチェーンのない環境（SSH の接続先の Linux、コンテナなど）で、明示したときだけ使う。
 - キーチェーンが使えない（ロックされている、Secret Service がないなど）ときは、新しい鍵を作らずに終了コード 3 で止まり、`GDRIVE_CLI_KEYRING=file` の案内を出す。鍵を作るのは、クライアントシークレットを取り込む `login --client-secret`（と `setup`）だけ。
 - 鍵がない、合わない、キーチェーンが使えない場合は、終了コード 3 で止まる。`status` は、ログインしていない扱いにして、理由を表示する。
+- `GDRIVE_CLI_KEYRING=file` で使っている設定ディレクトリで、この環境変数を付け忘れると、OS のキーチェーンを探して「鍵が見つかりません」となる。設定ディレクトリに `key` があるときは、付け忘れていないかを尋ねる一言が添えられる。付け忘れたまま `login --client-secret` で取り込み直すと、キーチェーンに新しい鍵ができてしまうので、先に環境変数を確かめる。
 - `logout` は、Google 側でトークンを無効にして `token.enc` を消すが、**鍵は消さない**。`client_secret.enc` が同じ鍵で暗号化されているため。
 - 古い形式のファイル（`token.json`、`client_secret.json`）だけが残っているときは、終了コード 3 で `login --client-secret` のやり直しを求める。自動では移し替えない。ログインに成功すると、古いファイルは消える。
 
@@ -182,7 +188,7 @@ gdrive-cli status
 gdrive-cli status --json
 ```
 
-AI エージェントが作業前に確認するためのコマンド。ルートフォルダがまだなければ、最初の `login` と同じ規則で `gdrive-cli` フォルダを作る。鍵の置き場所（`os` か `file`）も表示する（`--json` では `keyStore`）。ログインしていないときは、その理由（鍵がない、合わない、キーチェーンが使えない、古い形式のファイルだけがある）も表示する。
+AI エージェントが作業前に確認するためのコマンド。ルートフォルダがまだなければ、最初の `login` と同じ規則で `gdrive-cli` フォルダを作る。鍵の置き場所（`os` か `file`）も表示する（`--json` では `keyStore`）。ログインしていないときは、その理由（鍵がない、合わない、古い形式のファイルだけがある）も表示する（`--json` では `problem`）。キーチェーンが使えないときは、理由は `problem` には入らず、エラーとして標準エラーに出る（`--json` では標準エラーのエラーの JSON の `message`）。どの場合も終了コードは 3。
 
 ### mkdir
 
@@ -335,6 +341,7 @@ SSH の接続先、コンテナ、クラウドのサンドボックスなど、�
 キーチェーンのない環境では、鍵をファイルに置くよう `GDRIVE_CLI_KEYRING=file` を付ける。
 
 ```bash
+gdrive-cli init
 GDRIVE_CLI_KEYRING=file gdrive-cli login --no-browser --client-secret <JSON>
 ```
 
@@ -353,9 +360,12 @@ GDRIVE_CLI_KEYRING=file gdrive-cli login --no-browser --client-secret <JSON>
 - コピーして使うなら、コピー元でも `GDRIVE_CLI_KEYRING=file` でログインし、`key` ごとコピーする。コピー先でも `GDRIVE_CLI_KEYRING=file` を付ける。
 
 ```bash
-scp -r ~/.config/gdrive-cli remote:/home/me/gdrive-cli-config
+scp -rp ~/.config/gdrive-cli remote:/home/me/gdrive-cli-config
+ssh remote 'chmod 700 /home/me/gdrive-cli-config && chmod 600 /home/me/gdrive-cli-config/*'
 ssh remote 'GDRIVE_CLI_KEYRING=file GDRIVE_CLI_CONFIG_DIR=/home/me/gdrive-cli-config gdrive-cli status'
 ```
+
+`scp -p` で権限を保ったうえで、コピー先でもディレクトリを 0700、中のファイルを 0600 にそろえる（`key` も含まれるため）。
 
 トークンと鍵（`token.enc`、`key`）を含むので、渡す先は信頼できる環境だけにする。
 
