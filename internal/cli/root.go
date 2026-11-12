@@ -24,15 +24,18 @@ type Deps struct {
 	Download usecase.Download
 	Move     usecase.Move
 	Policy   usecase.PolicyStore
+	Setup    usecase.Setup
 	Stdin    io.Reader
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Progress bool // 標準エラーがターミナルなら true
+	// Interactive は、標準入力と標準エラーが両方とも端末なら true。
+	Interactive bool
 	// 後のタスクで、各 usecase のフィールドを足していく
 }
 
 // 拒否リストを確かめないコマンド。
-var unchecked = []string{"init", "help", "completion", "gdrive-cli"}
+var unchecked = []string{"init", "setup", "help", "completion", "gdrive-cli"}
 
 // Execute は、args を実行して終了コードを返す。
 func Execute(ctx context.Context, d Deps, args []string) int {
@@ -82,7 +85,7 @@ func newRootCommand(d Deps) *cobra.Command {
 	root.SetErr(d.Stderr)
 	root.PersistentFlags().BoolVar(asJSON, "json", false, "結果を JSON で出す")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError(err) })
-	root.AddCommand(newInitCommand(d, asJSON), newLoginCommand(d, asJSON), newLogoutCommand(d, asJSON), newStatusCommand(d, asJSON),
+	root.AddCommand(newInitCommand(d, asJSON), newSetupCommand(d, asJSON), newLoginCommand(d, asJSON), newLogoutCommand(d, asJSON), newStatusCommand(d, asJSON),
 		newMkdirCommand(d, asJSON), newLsCommand(d, asJSON), newUploadCommand(d, asJSON), newDownloadCommand(d, asJSON), newMvCommand(d, asJSON))
 	return root
 }

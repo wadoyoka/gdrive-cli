@@ -38,20 +38,33 @@ func run(ctx context.Context) int {
 		State:  repository.NewStateFile(dir),
 		Locker: repository.NewLockFile(dir),
 	}
+	login := usecase.Login{Auth: auth, Remote: remote}
+	status := usecase.Status{Dir: configDir, Auth: auth, Remote: remote}
+	initUC := usecase.Init{Dir: configDir, Policy: policy}
 	return cli.Execute(ctx, cli.Deps{
-		Init:     usecase.Init{Dir: configDir, Policy: policy},
-		Login:    usecase.Login{Auth: auth, Remote: remote},
+		Init:     initUC,
+		Login:    login,
 		Logout:   usecase.Logout{Auth: auth},
-		Status:   usecase.Status{Dir: configDir, Auth: auth, Remote: remote},
+		Status:   status,
 		Mkdir:    usecase.Mkdir{Remote: remote},
 		List:     usecase.List{Remote: remote},
 		Upload:   usecase.Upload{Remote: remote},
 		Download: usecase.Download{Remote: remote},
 		Move:     usecase.Move{Remote: remote},
 		Policy:   policy,
-		Stdin:    os.Stdin,
-		Stdout:   os.Stdout,
-		Stderr:   os.Stderr,
-		Progress: term.IsTerminal(int(os.Stderr.Fd())),
+		Setup: usecase.Setup{
+			Init:    initUC,
+			Policy:  policy,
+			Auth:    auth,
+			Cloud:   repository.NewGCloud(),
+			Login:   login,
+			Status:  status,
+			OpenURL: repository.OpenBrowser,
+		},
+		Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		Progress:    term.IsTerminal(int(os.Stderr.Fd())),
 	}, os.Args[1:])
 }
