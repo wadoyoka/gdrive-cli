@@ -76,3 +76,18 @@ type StateStore interface {
 type Locker interface {
 	Lock(ctx context.Context) (unlock func(), err error)
 }
+
+// CloudProject は、gcloud で見たプロジェクト。
+type CloudProject struct {
+	ID    string
+	State string // gcloud の lifecycleState のまま（"ACTIVE"、"DELETE_REQUESTED" など）
+}
+
+// CloudSetup は、setup が使う gcloud の操作。作る・有効にするだけで、消す操作は持たない。
+type CloudSetup interface {
+	Installed() bool
+	ActiveAccount(ctx context.Context) (string, error) // ログインしていなければ ""
+	DescribeProject(ctx context.Context, id string) (p CloudProject, found bool, err error)
+	CreateProject(ctx context.Context, id string) error // ID が使われていれば KindConflict
+	EnableDrive(ctx context.Context, id string) error
+}
