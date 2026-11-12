@@ -24,9 +24,9 @@ Claude Code などの AI が作った HTML や動画（数百 MB 以上のもの
 
 - Go 1.27.3 以上（`go install` で入れる場合）
 - Google アカウント（個人のもの。Workspace ではない）
-- Terraform 1.14 以上と、gcloud CLI（GCP のプロジェクトを作るため）
+- gcloud CLI（`gdrive-cli setup` が GCP のプロジェクトを作るために使う。手作業で設定する場合は不要）
 - ブラウザ（`login` のため。ない環境は「ブラウザのない環境」を参照）
-- macOS を主に想定している。Linux でも動く。
+- macOS を主に想定している。Linux でも動く。トークンの暗号化の鍵は OS のキーチェーンに置く（キーチェーンのない環境は「トークンの暗号化」を参照）。
 
 入れ方
 
@@ -36,48 +36,64 @@ go install github.com/wadoyoka/gdrive-cli/cmd/gdrive-cli@latest
 
 ## セットアップ
 
-流れは、(1) Terraform で GCP プロジェクトを作る、(2) 手作業で OAuth の設定をする、(3) `init` と `login` を実行する、の3段階。
+流れは、(1) GCP プロジェクトを作って Drive API を有効にする、(2) OAuth の設定を手作業でする、(3) `init` と `login` を実行する、の3段階。`gdrive-cli setup` を使えば、この3段階を1つのコマンドで案内してもらえる。
 
-### 1. Terraform
+### 1. `gdrive-cli setup`
 
-GCP のプロジェクトを作り、Drive API を有効にする。課金アカウントは紐づけない（Drive API は無料枠で使える想定）。
+前提は次の2つ。
 
-```bash
-gcloud auth application-default login
-terraform -chdir=infra init
-terraform -chdir=infra apply -var project_id=<全世界で重複しないプロジェクト ID>
-```
-
-- `project_id` は、小文字で始まり、小文字・数字・ハイフンだけを使った 6〜30 文字で、最後は小文字か数字にする。
-- プロジェクトは組織やフォルダに属させない。`deletion_policy = "PREVENT"` なので、`terraform destroy` ではプロジェクトを消せない。
-- 課金がないので Compute Engine API は有効にならず、既定のネットワーク（VPC）は作られない。
-- state はローカルに置かれる（`*.tfstate*` と `.terraform/` は git に入らない）。
-- `apply` が終わると、`project_id`、`auth_overview_url`、`auth_clients_url` が出力される。次の手作業で、この2つの URL を使う。あとから見るには `terraform -chdir=infra output` を実行する。
-
-quota project の警告やエラーが出たとき
-
-ユーザーの認証情報（ADC）で動かすと、「quota project がない」という警告や、`API has not been used in project ...` のようなエラーが出ることがある。そのときは、自分が使える既存のプロジェクトを quota project に指定してから、やり直す。
+- gcloud CLI を入れてある（入れ方は Google Cloud CLI のインストールのページ: https://cloud.google.com/sdk/docs/install ）。
+- `gcloud auth login` でログインしてある。
 
 ```bash
-gcloud auth application-default set-quota-project <自分が使える既存のプロジェクト ID>
+gdrive-cli setup
+gdrive-cli setup --project my-gdrive-cli-project
+gdrive-cli setup --client-secret ~/Downloads/client_secret_xxx.json
 ```
 
-環境変数で指定する場合は `export GOOGLE_BILLING_PROJECT=<プロジェクト ID>` と `export USER_PROJECT_OVERRIDE=true` でもよい。これでも解消しないときは、Terraform の実行に使うプロジェクトで `serviceusage.googleapis.com` と `cloudresourcemanager.googleapis.com` が有効かを確認する。
+| フラグ | 意味 |
+|---|---|
+| `--project <id>` | 使う（または作る）GCP プロジェクトの ID。省略すると対話で聞く |
+| `--client-secret <path>` | ダウンロード済みの JSON のパス。指定すると、手作業の案内と JSON のパスの質問を飛ばす |
+| `--no-browser` | ブラウザを開かない。手作業の画面の URL を表示するだけにし、ログインは `login --no-browser` と同じ流れにする |
+
+`setup` は人が端末で実行するコマンド。標準入力と標準エラーが端末でなければ、何もせずに終了コード 2 で止まる。`--json` にも対応しない（終了コード 2）。
+
+流れ（済んでいる手順は飛ばすので、何度実行しても同じ結果になる）
+
+1. `init` と同じく、設定ディレクトリと `policy.toml` を用意する。
+2. 拒否リストに `setup` か `login` があれば、終了コード 7 で止まる。
+3. 暗号化の鍵の置き場所が使えるかを、GCP を変える前に確かめる（使えなければ終了コード 3）。
+4. gcloud が入っていて、ログイン済みかを確かめる。どちらかが欠けていれば、終了コード 3 で案内を出す。
+5. プロジェクト ID を決める。`--project` がなければ聞く。既定値は `gdrive-cli-` に小文字英数字 6 文字を付けたもので、Enter だけならそれを使う。
+6. プロジェクトを確かめ、なければ作る。表示名は `gdrive-cli`。組織やフォルダには属させず、課金アカウントも紐づけない。ID が他の人に使われていれば、対話なら聞き直し、`--project` なら終了コード 5。削除予定の状態なら、`gcloud projects undelete <id>` で戻す方法を案内して止まる（終了コード 3）。
+7. Drive API（`drive.googleapis.com`）を有効にする。作った直後は失敗することがあるので、数回やり直す。
+8. 手作業（次の「2. 手作業」）の手順を、プロジェクト ID 入りの URL で表示し、ブラウザで開く。クライアントシークレットが取り込み済みで復号できるとき、または `--client-secret` を指定したときは飛ばす。
+9. ダウンロードした JSON のパスを聞いて、暗号化して取り込む。JSON の `project_id` が手順 6 のプロジェクトと違えば、警告して続けるかを聞く。
+10. ログインする（`login` と同じ処理）。ログイン済みで、JSON を取り込み直していなければ飛ばす。
+11. プロジェクト、gcloud のアカウント、ログインした Google アカウント、ルートフォルダのリンク、鍵の置き場所を表示する。
+
+`setup` が GCP に加える変更は、プロジェクトの作成と Drive API の有効化だけ。gcloud は、`auth list`、`projects describe`、`projects create`、`services enable drive.googleapis.com` の4つしか呼ばない（毎回 `--quiet` を付け、標準入力はつながない）。
+
+- gcloud のアカウント（プロジェクトの持ち主）と、ログインする Google アカウント（ドライブの持ち主）は、別でもよい。
+- 2台目の PC では、`setup` を使わずに、`init` と `login --client-secret <保管しておいた JSON>` だけでもよい。`setup` を使っても、済んでいる手順は飛ばされる。
 
 ### 2. 手作業（OAuth 同意画面とクライアント）
 
-Terraform では作れない部分。OAuth 同意画面と OAuth クライアントを作る公開 API がないため（Google の IAP OAuth Admin API は 2025年1月に非推奨になっている）。Terraform の出力した `auth_overview_url` と `auth_clients_url` から開ける。
+OAuth 同意画面と OAuth クライアントを作る公開 API がないため、ここだけは手作業になる（Google の IAP OAuth Admin API は 2025年1月に非推奨になっている）。`setup` は同じ内容を表示する。`setup` を使わない人は、Google Cloud コンソールの Google Auth Platform を開き、自分のプロジェクトを選んで、次を行う。
 
-1. Google Auth Platform の「ブランディング」で、アプリ名とサポート用メールアドレスを設定する。
-2. 「対象（Audience）」で、ユーザーの種類を「外部（External）」にする。そのうえで公開ステータスを「本番（In production）」にする。
+1. 「ブランディング」（`https://console.cloud.google.com/auth/branding?project=<プロジェクト ID>`）で、アプリ名とサポート用メールアドレスを設定する。
+2. 「対象（Audience）」（`.../auth/audience?project=<プロジェクト ID>`）で、ユーザーの種類を「外部（External）」にする。そのうえで公開ステータスを「本番（In production）」にする。
    - 「テスト」のままだとリフレッシュトークンが 7日で切れるため。
    - `drive.file` は影響が小さいスコープなので、本番にしても審査は要らず、「未確認のアプリ」警告も出ない想定。
-3. 「データアクセス」で `https://www.googleapis.com/auth/drive.file` を追加する。
-4. 「クライアント」で、種類が「デスクトップアプリ」のクライアントを作り、JSON をダウンロードする。
-5. `gdrive-cli init` を実行し、続けて `gdrive-cli login --client-secret <ダウンロードした JSON>` を実行する。
+3. 「データアクセス」（`.../auth/scopes?project=<プロジェクト ID>`）で `https://www.googleapis.com/auth/drive.file` を追加する。
+4. 「クライアント」（`.../auth/clients?project=<プロジェクト ID>`）で、種類が「デスクトップアプリ」のクライアントを作り、JSON をダウンロードする。
+5. `gdrive-cli init` を実行し、続けて `gdrive-cli login --client-secret <ダウンロードした JSON>` を実行する（`setup` を使うなら、JSON のパスを聞かれる）。
 
 注意
 
+- **クライアントシークレットは、作成直後の画面でしかダウンロードできない。** その画面を閉じると二度と表示されない。ダウンロードした JSON は、パスワードマネージャーなど安全な場所に保管する（別の PC で使うときや、鍵をなくしたときに要る）。
+- 6か月使われていない OAuth クライアントは、自動で削除される。削除から 30日以内なら戻せる。普段使っていれば、トークンの更新で使われ続けるので、削除されない。
 - GCP プロジェクトを消す、または OAuth クライアントを作り直すと、それまでに作ったファイルが CLI から見えなくなる。ファイル自体はドライブに残る。
 - ダウンロードした JSON（`client_secret*.json`）は、リポジトリに入れない（`.gitignore` と trivy で防いでいる）。
 
@@ -89,8 +105,9 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 ```
 
 - `init` は設定ディレクトリを作り、拒否リスト（`policy.toml`）を置く。通信はしない。何度実行しても同じ結果になり、既にある `policy.toml` は書き換えない。`login` は `init` のあとでないと実行できない。
-- `login` はブラウザを開いてログインを求め、トークンを保存する。ログインしたアカウントのメールアドレスを表示し、専用のルートフォルダを確定させる。
-- 初回は `--client-secret` が必須で、指定した JSON を設定ディレクトリにコピーする。2回目以降は省略できる。
+- `login` はブラウザを開いてログインを求め、トークンを暗号化して保存する。ログインしたアカウントのメールアドレスを表示し、専用のルートフォルダを確定させる。
+- 初回は `--client-secret` が必須で、指定した JSON を検めてから、暗号化して設定ディレクトリに保存する。2回目以降は省略できる。
+- 鍵がなくなった・合わなくなったなどで `client_secret.enc` を復号できないときも、`--client-secret` を付けて取り込み直す。
 - ルートフォルダがなければ新しく作る。別の PC などで既にある場合は、それを見つけて使う。2つ以上見つかったときは、作成日時が最も古いものを選び、残りの ID とリンクを警告として出す。
 - ルートフォルダがゴミ箱にあるときは、新しく作らずにエラーにする。ブラウザでゴミ箱から戻す。
 - 以後のコマンドは、トークンの更新に失敗したときなどに終了コード 3 で止まる。そのときは `gdrive-cli login` をやり直す。
@@ -105,26 +122,51 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 
 | ファイル | 作るもの | 中身 |
 |---|---|---|
-| `policy.toml` | `init` | 拒否リスト。人が手で編集する |
-| `client_secret.json` | `login --client-secret` | ダウンロードした JSON のコピー |
-| `token.json` | `login` | OAuth トークン（リフレッシュトークンを含む） |
+| `policy.toml` | `init`、`setup` | 拒否リスト。人が手で編集する |
+| `client_secret.enc` | `login --client-secret`、`setup` | ダウンロードした JSON を暗号化したもの |
+| `token.enc` | `login` | OAuth トークン（リフレッシュトークンを含む）を暗号化したもの |
+| `key` | `login`（`GDRIVE_CLI_KEYRING=file` のときだけ） | 暗号化の鍵 |
 | `state.json` | CLI | ルートフォルダの ID など、CLI が自分で書く情報 |
 | `lock` | CLI | 同時実行のためのロックファイル |
 
-トークンはファイルに保存する（OS のキーチェーンは使わない）。AI エージェントもこのファイルを読めるが、`drive.file` があるので被害は CLI の領域の中に限られる。
+#### トークンの暗号化
+
+`token.enc` と `client_secret.enc` は、AES-256-GCM で暗号化してある。鍵は 32 バイトの乱数で、置き場所は環境変数 `GDRIVE_CLI_KEYRING` で決まる。
+
+| `GDRIVE_CLI_KEYRING` | 鍵の置き場所 |
+|---|---|
+| 未設定、空、`os` | OS のキーチェーン（macOS はキーチェーン、Linux は Secret Service）。サービス名は `gdrive-cli`、アカウント名は設定ディレクトリの絶対パス |
+| `file` | 設定ディレクトリの `key`（権限 0600） |
+| それ以外 | 終了コード 2 |
+
+- 守れるもの: 設定ディレクトリのファイルだけが外に出た場合（バックアップ、dotfiles の同期、誤ったコミット、ログへの貼り付けなど）。鍵がなければ使えない。
+- 守れないもの: 同じユーザーとして動くプログラム（AI エージェントを含む）。gdrive-cli 自体を実行できるし、キーチェーンの項目を読み出せる場合もある。ここでの守りは、`drive.file` スコープと、削除や共有の処理を持たない作り。
+- `GDRIVE_CLI_KEYRING=file` では、鍵が同じディレクトリにあるので、守りは暗号化しない場合とほぼ同じになる。キーチェーンのない環境（SSH の接続先の Linux、コンテナなど）で、明示したときだけ使う。
+- キーチェーンが使えない（ロックされている、Secret Service がないなど）ときは、新しい鍵を作らずに終了コード 3 で止まり、`GDRIVE_CLI_KEYRING=file` の案内を出す。鍵を作るのは、クライアントシークレットを取り込む `login --client-secret`（と `setup`）だけ。
+- 鍵がない、合わない、キーチェーンが使えない場合は、終了コード 3 で止まる。`status` は、ログインしていない扱いにして、理由を表示する。
+- `logout` は、Google 側でトークンを無効にして `token.enc` を消すが、**鍵は消さない**。`client_secret.enc` が同じ鍵で暗号化されているため。
+- 古い形式のファイル（`token.json`、`client_secret.json`）だけが残っているときは、終了コード 3 で `login --client-secret` のやり直しを求める。自動では移し替えない。ログインに成功すると、古いファイルは消える。
+
+すべてを消すとき: 設定ディレクトリを消し、キーチェーンの `gdrive-cli` の項目も消す。macOS の例は次のとおり。
+
+```bash
+rm -r ~/.config/gdrive-cli
+security delete-generic-password -s gdrive-cli -a <設定ディレクトリの絶対パス>
+```
 
 ## コマンドと例
 
-共通のフラグは `--json`（結果を JSON で標準出力に出す。エラーも JSON にして標準エラーに出す）。普段は人が読みやすい表示になる。`login` 以外のコマンドは、標準入力から何も読まず、入力を求めて止まらない。
+共通のフラグは `--json`（結果を JSON で標準出力に出す。エラーも JSON にして標準エラーに出す）。普段は人が読みやすい表示になる。`setup` と `login` 以外のコマンドは、標準入力から何も読まず、入力を求めて止まらない。
 
 ドライブ側のパスは、ルートフォルダを `/` とする（例: `/videos/2026-11/intro.mp4`）。先頭の `/` は省略してもよい。
 
 | コマンド | 内容 |
 |---|---|
 | `init` | 設定ディレクトリと拒否リストを用意する |
+| `setup [--project <ID>] [--client-secret <JSON>] [--no-browser]` | gcloud で GCP プロジェクトを用意し、手作業を案内して、ログインまで進める（人が端末で実行する） |
 | `login [--client-secret <JSON>] [--no-browser]` | Google にログインする |
 | `logout` | Google 側でトークンを無効化し、保存したトークンを消す |
-| `status` | ログイン状態、アカウント、ルートフォルダの ID と URL を表示する |
+| `status` | ログイン状態、アカウント、ルートフォルダの ID と URL、鍵の置き場所を表示する |
 | `mkdir [-p] <パス>...` | フォルダを作る |
 | `ls [-R] [-l] [パス]` | フォルダの中身（ファイルならそのファイル自身）を表示する |
 | `upload [-p] [--skip-existing] <手元のパス>... <送り先のフォルダ>` | 手元のファイルやフォルダをドライブへ送る |
@@ -138,7 +180,7 @@ gdrive-cli status
 gdrive-cli status --json
 ```
 
-AI エージェントが作業前に確認するためのコマンド。ルートフォルダがまだなければ、最初の `login` と同じ規則で `gdrive-cli` フォルダを作る。
+AI エージェントが作業前に確認するためのコマンド。ルートフォルダがまだなければ、最初の `login` と同じ規則で `gdrive-cli` フォルダを作る。鍵の置き場所（`os` か `file`）も表示する（`--json` では `keyStore`）。ログインしていないときは、その理由（鍵がない、合わない、キーチェーンが使えない、古い形式のファイルだけがある）も表示する。
 
 ### mkdir
 
@@ -229,7 +271,7 @@ gdrive-cli mv /a.html /b.html /archive
 gdrive-cli logout
 ```
 
-Google 側でトークンを無効化（revoke）してから、トークンファイルを消す。
+Google 側でトークンを無効化（revoke）してから、`token.enc`（と、あれば古い形式の `token.json`）を消す。暗号化の鍵は消さない。`client_secret.enc` が同じ鍵で暗号化されているので、鍵を残しておけば、次の `login` で JSON を指定し直さなくてよい。
 
 ## 終了コードの表
 
@@ -238,7 +280,7 @@ Google 側でトークンを無効化（revoke）してから、トークンフ�
 | 0 | 成功 |
 | 1 | 予期しないエラー（通信、API、ローカルの入出力）や、一部の失敗 |
 | 2 | 引数の誤り |
-| 3 | 準備が必要（`init` をしていない、トークンがない、トークンの更新に失敗した、client_secret がない） |
+| 3 | 準備が必要（`init` をしていない、トークンがない、トークンの更新に失敗した、client_secret がない、暗号化の鍵がない・合わない・キーチェーンが使えない、古い形式のファイルだけがある、`setup` で gcloud がない・ログインしていない） |
 | 4 | 見つからない（ドライブ側のパス、またはローカルのパス） |
 | 5 | 衝突（同じ名前がある、種類が違う） |
 | 6 | パスがあいまい（同じ名前が複数ある） |
@@ -269,7 +311,7 @@ deny = []
 | 知らないキーがある（例: `denny`） | 終了コード 7。すべてが止まる |
 | 知らないコマンド名がある（例: `uplaod`） | 終了コード 7。すべてが止まる |
 
-- `init` と `help` は、拒否リストの対象にならない。拒否リストを作る、または直すためのコマンドだから。それ以外のすべてのコマンドは、実行の前に拒否リストを読む。
+- `init` と `help` は、拒否リストの対象にならない。拒否リストを作る、または直すためのコマンドだから。`setup` はルートの判定から外れていて、途中で `policy.toml` を作ったあとに、自分で `setup` と `login` の両方が拒否されていないかを調べる（`setup` の中でログインもするため）。それ以外のすべてのコマンドは、実行の前に拒否リストを読む。
 - 拒否リストは、誤操作を防ぐための柵であって、セキュリティの境界ではない。設定ディレクトリに書き込める人やプログラム（AI エージェントを含む）は書き換えられる。本当の境界は、`drive.file` スコープと、削除や共有の処理を持たない作りである（機械的な検査で守っている）。
 
 ## AI エージェントから使うとき
@@ -278,35 +320,42 @@ deny = []
 - エラーに原因（Drive API や通信のエラーなど）があれば、`details` の最後の要素に入る（`--json` なしでは、最後の補足の行に出る）。
 - **作業の前に `gdrive-cli status --json`** で、ログインできているかを確かめる。
 - **大きなアップロードはバックグラウンドで実行する。** AI エージェントには、コマンドの実行時間に上限があることが多い（Claude Code の Bash ツールは既定で 2 分、最大で 10 分）。Claude Code なら `run_in_background` を使う。途中で止められた場合、そのファイルは最初から送り直しになる（再開には対応していない）。止まったあとは、`upload --skip-existing` で同じコマンドをやり直す。
-- **`login` は人が行う。** ブラウザでの操作が要り、標準入力も読む唯一のコマンドなので、エージェントには実行させない。
-- **終了コード 3 が返ったら、人に戻す。** 「`gdrive-cli init` か `gdrive-cli login` が必要」と伝えて、止まる。エージェントが自分でログインしようとしない。
+- **`setup` と `login` は人が行う。** ブラウザでの操作が要り、標準入力も読むコマンドなので、エージェントには実行させない。`setup` は標準入力と標準エラーが端末でなければ、何もせずに終了コード 2 で止まる。さらに、本物の gcloud で GCP を変える（プロジェクトを作る）ので、なおさら人が行う。
+- **終了コード 3 が返ったら、人に戻す。** 「`gdrive-cli init`、`gdrive-cli setup`、`gdrive-cli login` のどれかが必要」と伝えて、止まる。エージェントが自分でセットアップやログインをしようとしない。
 - 削除や共有のコマンドはないので、取り返しのつかない操作は起きない。さらに絞りたいときは、拒否リストを使う。
 
 ## ブラウザのない環境
 
-SSH の接続先、コンテナ、クラウドのサンドボックスなど、ブラウザを開けない環境では、次のどちらかを使う。
+SSH の接続先、コンテナ、クラウドのサンドボックスなど、ブラウザやキーチェーンのない環境では、次のどちらかを使う。
 
 ### `login --no-browser`
 
+キーチェーンのない環境では、鍵をファイルに置くよう `GDRIVE_CLI_KEYRING=file` を付ける。
+
 ```bash
-gdrive-cli login --no-browser --client-secret <JSON>
+GDRIVE_CLI_KEYRING=file gdrive-cli login --no-browser --client-secret <JSON>
 ```
+
+以後のコマンドでも、同じ環境変数を付ける。
 
 1. CLI がログイン用の URL を表示する。
 2. その URL を、別の PC のブラウザで開いてログインする。
 3. ログイン後、ブラウザは `127.0.0.1` に飛ばされ、「接続できません」と表示される。そのときのアドレスバーの URL を丸ごとコピーして、CLI の標準入力に貼り付ける。
-4. CLI がその URL から認可コードと `state` を取り出し、トークンに交換して保存する。
+4. CLI がその URL から認可コードと `state` を取り出し、トークンに交換して、暗号化して保存する。
 
 ### 設定ディレクトリのコピー
 
 ログイン済みの設定ディレクトリ（`~/.config/gdrive-cli/`）を別の環境へコピーし、`GDRIVE_CLI_CONFIG_DIR` で指定する。
 
+- 鍵を OS のキーチェーンに置いている場合、設定ディレクトリをコピーしても、コピー先には鍵がないので使えない。これは暗号化の目的どおりの動き。
+- コピーして使うなら、コピー元でも `GDRIVE_CLI_KEYRING=file` でログインし、`key` ごとコピーする。コピー先でも `GDRIVE_CLI_KEYRING=file` を付ける。
+
 ```bash
 scp -r ~/.config/gdrive-cli remote:/home/me/gdrive-cli-config
-ssh remote 'GDRIVE_CLI_CONFIG_DIR=/home/me/gdrive-cli-config gdrive-cli status'
+ssh remote 'GDRIVE_CLI_KEYRING=file GDRIVE_CLI_CONFIG_DIR=/home/me/gdrive-cli-config gdrive-cli status'
 ```
 
-トークンのファイル（`token.json`）を含むので、渡す先は信頼できる環境だけにする。
+トークンと鍵（`token.enc`、`key`）を含むので、渡す先は信頼できる環境だけにする。
 
 ## 既知の制約
 
@@ -326,7 +375,6 @@ mise install        # ツールを入れる。lefthook のフックも入る
 make lint           # golangci-lint run ./...
 make fmt            # golangci-lint fmt
 make test           # go test ./...
-make tf-check       # infra/ の terraform fmt -check、init、validate
 ```
 
 - 実際の Drive を使う E2E テストは、既定では飛ばされる。先に `init` と `login` を済ませてから、次を実行する。ルートフォルダの下に `/e2e-<時刻>` を作り、終わると消す。
@@ -335,10 +383,10 @@ make tf-check       # infra/ の terraform fmt -check、init、validate
 GDRIVE_CLI_E2E=1 go test ./internal/repository/ -run TestE2E -v
 ```
 
-- ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、terraform、node、pnpm）。CI も同じ版を使う。
-- コミット時は lefthook が、gofmt、golangci-lint、go test、trivy（secret と vuln）、`infra/` の `terraform fmt -check`、commitlint を走らせる。
+- ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、node、pnpm）。CI も同じ版を使う。
+- コミット時は lefthook が、gofmt、golangci-lint、go test、trivy（secret と vuln）、commitlint を走らせる。
 - コミットメッセージの形式は `type: :emoji: 件名`（件名は日本語）。type と絵文字の対応は `commitlint.config.mjs` に従う。`--no-verify` は使わない。
 - 層は cli、usecase、domain、repository の4つ。依存の向きは `internal/archtest` と golangci-lint の depguard が確かめる。削除と共有の API を本体のコードから呼べないことも、archtest が機械的に確かめている。
 - タスクの管理には bd（beads）をステルスモードで使う（`bd ready`、`bd create`、`bd update <id> --status in_progress`、`bd close <id>`）。`.beads/` は git に入らない。
 - 試し用のファイルは `rm` ではなく、`trash/` へ `mv` で片付ける。
-- CI は commitlint、golangci-lint、`go test`、trivy、`terraform fmt -check` と `validate` を走らせる。trivy の Terraform 向けの misconfig 検査（`trivy fs --scanners misconfig infra`）も CI に入れている。`google_project` の GCP-0010（既定のネットワークを作る設定）だけは、`infra/main.tf` の `#trivy:ignore:GCP-0010` で外している。`auto_create_network = false` にすると、provider が既定のネットワークを消すために Compute Engine API を有効にしようとし、課金を紐づけないこのプロジェクトでは `apply` が失敗するため。課金がなければ Compute Engine API は有効にならないので、既定のネットワークは作られない。
+- CI は commitlint、golangci-lint、`go test`、trivy を走らせる。
