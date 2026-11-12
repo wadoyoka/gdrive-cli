@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,7 +34,7 @@ func newSetupCommand(d Deps, asJSON *bool) *cobra.Command {
 				ProjectID:        projectID,
 				ClientSecretPath: secretPath,
 				NoBrowser:        noBrowser,
-				Ask:              termPrompter{in: br, out: d.Stderr},
+				Ask:              termPrompter{ctx: cmd.Context(), in: br, out: d.Stderr},
 				Prompt:           d.Stderr,
 				Input:            br,
 			})
@@ -51,18 +52,44 @@ func newSetupCommand(d Deps, asJSON *bool) *cobra.Command {
 	return cmd
 }
 
-// termPrompter は、端末で人に尋ねる SetupPrompter。in は1行ずつ読む。
+// termPrompter は、端末で人に尋ねる SetupPrompter。in は1行ずつ読む。ctx が取り消されたら読むのをやめる。
 type termPrompter struct {
+	ctx context.Context // コマンドの ctx。SetupPrompter の形を変えずに、Ctrl-C で読むのをやめるため
 	in  *bufio.Reader
 	out io.Writer
 }
 
+type lineResult struct {
+	line string
+	err  error
+}
+
+// readLine は、1行読む。読むのは別の goroutine で行い、ctx が取り消されたら（Ctrl-C）待たずに「中止しました」を返す。
+// 読み終わるまで次の読み取りは始めないので、ctx が生きているあいだ、in を同時に2か所から読むことはない。
+// 取り消したときに置き去りにした読み取りは、そのあとプロセスが終わるので害はない。取り消し済みなら読み始めない。
 func (p termPrompter) readLine() (string, error) {
-	line, err := p.in.ReadString('\n')
-	if err != nil && (!errors.Is(err, io.EOF) || line == "") {
-		return "", err
+	ctx := p.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return strings.TrimRight(line, "\r\n"), nil
+	if ctx.Err() != nil {
+		return "", usecase.SetupAborted()
+	}
+	ch := make(chan lineResult, 1)
+	go func() {
+		line, err := p.in.ReadString('\n')
+		ch <- lineResult{line: line, err: err}
+	}()
+	var r lineResult
+	select {
+	case <-ctx.Done():
+		return "", usecase.SetupAborted()
+	case r = <-ch:
+	}
+	if r.err != nil && (!errors.Is(r.err, io.EOF) || r.line == "") {
+		return "", r.err
+	}
+	return strings.TrimRight(r.line, "\r\n"), nil
 }
 
 func (p termPrompter) Ask(question, def string) (string, error) {

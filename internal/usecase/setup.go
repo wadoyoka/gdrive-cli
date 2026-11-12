@@ -56,10 +56,22 @@ type SetupResult struct {
 
 const errSetupAborted = "中止しました"
 
-func setupAborted() error { return domain.Errorf(domain.KindUsage, "%s", errSetupAborted) }
+// SetupAborted は、setup を人が止めた（入力の終わり、空の入力、Ctrl-C）ときのエラー。終了コード 2。
+func SetupAborted() error { return domain.Errorf(domain.KindUsage, "%s", errSetupAborted) }
+
+func setupAborted() error { return SetupAborted() }
 
 // Run は、設計書 4.2 の手順 1〜12 を順に行う。済んでいる手順は飛ばす。
+// 途中で ctx が取り消された（Ctrl-C）ときは、gcloud などの失敗ではなく「中止しました」を返す。
 func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
+	res, err := u.run(ctx, in)
+	if err != nil && ctx.Err() != nil {
+		return SetupResult{}, setupAborted()
+	}
+	return res, err
+}
+
+func (u Setup) run(ctx context.Context, in SetupInput) (SetupResult, error) {
 	say := in.Ask.Say
 
 	// 1. init と同じ処理
@@ -91,8 +103,18 @@ func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
 			return SetupResult{}, err
 		}
 	}
+	// --client-secret も、gcloud を呼ぶ前に検める（読むだけで、保存はしない）。project_id は ID の既定値に使う。
+	secretProjectID := ""
+	if in.ClientSecretPath != "" {
+		if secretProjectID, err = u.Auth.ClientSecretProjectID(in.ClientSecretPath); err != nil {
+			return SetupResult{}, err
+		}
+	}
 
 	// 4. gcloud
+	if err := ctx.Err(); err != nil {
+		return SetupResult{}, err
+	}
 	if !u.Cloud.Installed() {
 		return SetupResult{}, domain.Errorf(domain.KindSetup, "gcloud が見つかりません。Google Cloud CLI を入れてから、やり直してください: https://cloud.google.com/sdk/docs/install")
 	}
@@ -108,10 +130,11 @@ func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
 	say("[確認] gcloud のアカウント %s でプロジェクトを作ります", account)
 
 	// 6, 7. プロジェクト
-	id, err := u.resolveProject(ctx, in)
+	id, err := u.resolveProject(ctx, in, defaultProjectID(secretProjectID, insp))
 	if err != nil {
 		return SetupResult{}, err
 	}
+	say("やり直すときは `gdrive-cli setup --project %s` を使ってください", id)
 
 	// 8. Drive API
 	if err := u.enableDrive(ctx, id); err != nil {
@@ -137,13 +160,22 @@ func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
 	// 11, 12. ログイン
 	res := SetupResult{ProjectID: id, GCloudAccount: account, KeyStore: insp.KeyStore}
 	if !imported && insp.Token {
-		say("[省略] ログイン済みです")
 		st, err := u.Status.Run(ctx)
-		if err != nil {
+		switch {
+		case err == nil:
+			say("[省略] ログイン済みです")
+			res.Email, res.RootFolderLink = st.Email, st.RootFolderLink
+			return res, nil
+		case domain.KindOf(err) == domain.KindSetup && ctx.Err() == nil:
+			// token.enc は読めるが、Google 側で取り消された・期限が切れたなど。ログインし直す。
+			// 原因（通信の応答など）までは出さず、こちらで書いた文言だけを出す。
+			var de *domain.Error
+			if errors.As(err, &de) {
+				say("[確認] 保存したログインが使えません（%s）。ログインし直します", de.Message)
+			}
+		default:
 			return SetupResult{}, err
 		}
-		res.Email, res.RootFolderLink = st.Email, st.RootFolderLink
-		return res, nil
 	}
 	lr, err := u.Login.Run(ctx, LoginInput{NoBrowser: in.NoBrowser, Prompt: in.Prompt, Input: in.Input})
 	if err != nil {
@@ -154,8 +186,21 @@ func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
 	return res, nil
 }
 
-// resolveProject は、手順 6 と 7。使うプロジェクトの ID を返す。
-func (u Setup) resolveProject(ctx context.Context, in SetupInput) (string, error) {
+// defaultProjectID は、--project がないときに示す既定値の候補。
+// --client-secret の project_id、取り込み済みの client_secret.enc の project_id の順に使い、
+// どちらもなければ ""（そのときはランダムな ID にする）。済んだ setup をやり直しても、新しいプロジェクトを作らないため。
+func defaultProjectID(secretProjectID string, insp AuthInspection) string {
+	if secretProjectID != "" {
+		return secretProjectID
+	}
+	if insp.ClientSecret {
+		return insp.ProjectID
+	}
+	return ""
+}
+
+// resolveProject は、手順 6 と 7。使うプロジェクトの ID を返す。def は対話で示す既定値（"" ならランダム）。
+func (u Setup) resolveProject(ctx context.Context, in SetupInput, def string) (string, error) {
 	say := in.Ask.Say
 	interactive := in.ProjectID == ""
 	id := in.ProjectID
@@ -167,9 +212,12 @@ func (u Setup) resolveProject(ctx context.Context, in SetupInput) (string, error
 	for {
 		if interactive {
 			var err error
-			if id, err = u.askProjectID(in.Ask); err != nil {
+			if id, err = u.askProjectID(in.Ask, def); err != nil {
 				return "", err
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
 		p, found, err := u.Cloud.DescribeProject(ctx, id)
 		if err != nil {
@@ -199,13 +247,15 @@ func (u Setup) resolveProject(ctx context.Context, in SetupInput) (string, error
 	}
 }
 
-// askProjectID は、形の合う ID が得られるまで聞く。
-func (u Setup) askProjectID(ask SetupPrompter) (string, error) {
-	suffix, err := u.randomSuffix()
-	if err != nil {
-		return "", err
+// askProjectID は、形の合う ID が得られるまで聞く。def が "" なら、ランダムな ID を既定値にする。
+func (u Setup) askProjectID(ask SetupPrompter, def string) (string, error) {
+	if def == "" {
+		suffix, err := u.randomSuffix()
+		if err != nil {
+			return "", err
+		}
+		def = projectIDPrefix + suffix
 	}
-	def := projectIDPrefix + suffix
 	for {
 		ans, err := ask.Ask("プロジェクト ID", def)
 		if errors.Is(err, io.EOF) {
@@ -245,6 +295,9 @@ func (u Setup) randomSuffix() (string, error) {
 func (u Setup) enableDrive(ctx context.Context, id string) error {
 	gap := enableDriveFirstGap
 	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		err := u.Cloud.EnableDrive(ctx, id)
 		if err == nil {
 			return nil
@@ -339,19 +392,41 @@ func (u Setup) importClientSecret(id string, in SetupInput) error {
 }
 
 // normalizeInputPath は、人が打った（またはドラッグした）パスを整える。
-// 前後の空白と両端の ' か " を1組取り除き、`\ ` を空白に戻し、先頭の `~/` をホームに展開する。
+// 前後の空白と両端の ' か " を1組取り除く。引用符で囲まれていなければ、`\` の後ろの1文字をそのまま残す
+// （`x\ \(1\).json` → `x (1).json`）。先頭の `~/` はホームに展開する。
 func normalizeInputPath(s string) (string, error) {
 	s = strings.TrimSpace(s)
+	quoted := false
 	if len(s) >= 2 && (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
 		s = s[1 : len(s)-1]
+		quoted = true
 	}
-	s = strings.ReplaceAll(s, `\ `, " ")
-	if rest, ok := strings.CutPrefix(s, "~/"); ok {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", domain.Errorf(domain.KindUsage, "ホームディレクトリを調べられません: %s", s).Wrap(err)
+	rest, tilde := strings.CutPrefix(s, "~/")
+	if !quoted {
+		rest = unescapeBackslashes(rest)
+	}
+	if !tilde {
+		return rest, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", domain.Errorf(domain.KindUsage, "ホームディレクトリを調べられません: %s", s).Wrap(err)
+	}
+	return filepath.Join(home, rest), nil
+}
+
+// unescapeBackslashes は、`\` とその後ろの1文字を、その1文字にする。末尾に残った `\` はそのまま。
+func unescapeBackslashes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
 		}
-		s = filepath.Join(home, rest)
+		b.WriteByte(s[i])
 	}
-	return s, nil
+	return b.String()
 }

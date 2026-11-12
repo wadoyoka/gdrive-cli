@@ -757,6 +757,180 @@ func TestAuthClientSecretProjectID(t *testing.T) {
 	})
 }
 
+// webMarker は、web のクライアントの JSON の client_secret に入れる目印。エラーに出ていないことを確かめる。
+const webMarker = "zq-web-marker-7f3k"
+
+const webClientSecret = `{"web":{"client_id":"test-web-id.apps.googleusercontent.com","project_id":"web-proj-1","client_secret":"` + webMarker + `","auth_uri":"https://accounts.example/auth","token_uri":"https://accounts.example/token","redirect_uris":["https://example.com/cb"]}}`
+
+func TestAuthRejectsNonDesktopClient(t *testing.T) {
+	const guide = "デスクトップアプリの OAuth クライアントの JSON を指定してください"
+	installedPart := strings.TrimSuffix(strings.TrimPrefix(testClientSecret, "{"), "}")
+	webPart := strings.TrimSuffix(strings.TrimPrefix(webClientSecret, "{"), "}")
+	bodies := map[string]string{
+		"web だけ":              webClientSecret,
+		"installed と web の両方": "{" + installedPart + "," + webPart + "}",
+	}
+	for name, body := range bodies {
+		t.Run(name+"の JSON は、取り込みも project_id の検めも KindUsage で断り、何も保存しない", func(t *testing.T) {
+			// Arrange
+			keys := newMemKeys()
+			a := &Auth{Dir: t.TempDir(), Keys: keys}
+			src := filepath.Join(t.TempDir(), "web.json")
+			if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			importErr := a.ImportClientSecret(src)
+			pid, checkErr := a.ClientSecretProjectID(src)
+
+			// Assert
+			for _, err := range []error{importErr, checkErr} {
+				if domain.KindOf(err) != domain.KindUsage || !strings.Contains(err.Error(), guide) {
+					t.Errorf("kind = %v, err = %v", domain.KindOf(err), err)
+				}
+				var de *domain.Error
+				if errors.As(err, &de) && (strings.Contains(err.Error(), webMarker) || strings.Contains(strings.Join(de.Details, " "), webMarker)) {
+					t.Errorf("エラーにシークレットが出ている: %v", err)
+				}
+			}
+			if pid != "" {
+				t.Errorf("pid = %q", pid)
+			}
+			if a.HasClientSecret() || keys.savedCount() != 0 {
+				t.Error("保存している")
+			}
+		})
+	}
+
+	t.Run("installed.project_id が文字列でない JSON は、デスクトップアプリの案内つきの KindUsage", func(t *testing.T) {
+		// Arrange
+		a := &Auth{Dir: t.TempDir(), Keys: newMemKeys()}
+		src := filepath.Join(t.TempDir(), "cs.json")
+		body := strings.Replace(testClientSecret, `"client_id"`, `"project_id":123,"client_id"`, 1)
+		if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		_, err := a.ClientSecretProjectID(src)
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUsage || !strings.Contains(err.Error(), guide) {
+			t.Errorf("kind = %v, err = %v", domain.KindOf(err), err)
+		}
+	})
+}
+
+func TestAuthInspectProjectID(t *testing.T) {
+	withProject := strings.Replace(testClientSecret, `"client_id"`, `"project_id":"my-proj-123","client_id"`, 1)
+
+	t.Run("client_secret.enc を今の鍵で読めたら、その installed.project_id を返す", func(t *testing.T) {
+		// Arrange
+		a := &Auth{Dir: t.TempDir(), Keys: newMemKeys()}
+		writeSealedFile(t, a, "client_secret.enc", secretKindClientSecret, []byte(withProject))
+
+		// Act
+		got, err := a.Inspect()
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.ClientSecret || got.ProjectID != "my-proj-123" {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("鍵が合わなければ project_id は空", func(t *testing.T) {
+		// Arrange
+		a := &Auth{Dir: t.TempDir(), Keys: newMemKeys()}
+		writeSealedFile(t, a, "client_secret.enc", secretKindClientSecret, []byte(withProject))
+		other, _ := newKey()
+		a.Keys.(*memKeys).key = other
+
+		// Act
+		got, err := a.Inspect()
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ClientSecret || got.ProjectID != "" {
+			t.Errorf("got %+v", got)
+		}
+	})
+}
+
+func TestAuthNoKeyHint(t *testing.T) {
+	const hint = "`GDRIVE_CLI_KEYRING=file` を付け忘れていませんか"
+
+	// noKeyAuth は、client_secret.enc と token.enc があり、鍵だけがない Auth を返す。
+	noKeyAuth := func(t *testing.T, kind string, keyFile bool) *Auth {
+		t.Helper()
+		a := &Auth{Dir: t.TempDir(), Keys: &memKeys{kind: kind}}
+		writeClientSecret(t, a)
+		writeToken(t, a, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+		a.Keys.(*memKeys).key = nil
+		if keyFile {
+			if err := os.WriteFile(filepath.Join(a.Dir, "key"), []byte("not-a-real-key"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return a
+	}
+
+	t.Run("OS のキーチェーンに鍵がなく、設定ディレクトリに key があれば、Inspect の理由に付け忘れの心当たりを足す", func(t *testing.T) {
+		// Arrange
+		a := noKeyAuth(t, "os", true)
+
+		// Act
+		got, err := a.Inspect()
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Token || !strings.Contains(got.Problem, "鍵が見つかりません") || !strings.Contains(got.Problem, hint) {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("同じとき、TokenSource のエラーにも付け忘れの心当たりを足す", func(t *testing.T) {
+		// Arrange
+		a := noKeyAuth(t, "os", true)
+
+		// Act
+		_, err := a.TokenSource(context.Background())
+
+		// Assert
+		if domain.KindOf(err) != domain.KindSetup || !strings.Contains(err.Error(), hint) {
+			t.Errorf("kind = %v, err = %v", domain.KindOf(err), err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name    string
+		kind    string
+		keyFile bool
+	}{
+		{"設定ディレクトリに key がなければ", "os", false},
+		{"鍵の置き場所が file なら", "file", true},
+	} {
+		t.Run(tc.name+"、付け忘れの心当たりは足さない", func(t *testing.T) {
+			// Arrange
+			a := noKeyAuth(t, tc.kind, tc.keyFile)
+
+			// Act
+			got, err := a.Inspect()
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got.Problem, "鍵が見つかりません") || strings.Contains(got.Problem, "GDRIVE_CLI_KEYRING") {
+				t.Errorf("got %+v", got)
+			}
+		})
+	}
+}
+
 func writeSrcSecret(t *testing.T) string {
 	t.Helper()
 	src := filepath.Join(t.TempDir(), "cs.json")

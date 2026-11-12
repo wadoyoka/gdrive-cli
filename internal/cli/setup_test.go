@@ -7,8 +7,11 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 )
 
@@ -222,6 +225,124 @@ func TestTermPrompter(t *testing.T) {
 		}
 		if !strings.Contains(errb.String(), "ID [def]: ") {
 			t.Errorf("質問の表示: %q", errb.String())
+		}
+	})
+
+	for _, method := range []string{"Ask", "Confirm"} {
+		t.Run(method+" は、入力が届かないまま ctx が取り消されたら、すぐに「中止しました」の KindUsage を返す", func(t *testing.T) {
+			// Arrange
+			pr, pw := io.Pipe() // 何も書かない
+			t.Cleanup(func() { _ = pw.Close() })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			out := newWatchWriter("[")
+			p := termPrompter{ctx: ctx, in: bufio.NewReader(pr), out: out}
+			done := make(chan error, 1)
+
+			// Act
+			go func() {
+				var err error
+				if method == "Ask" {
+					_, err = p.Ask("ID", "def")
+				} else {
+					_, err = p.Confirm("続けますか")
+				}
+				done <- err
+			}()
+			<-out.seen // 質問を出した（読み始める）あとで取り消す
+			cancel()
+
+			// Assert
+			select {
+			case err := <-done:
+				if domain.KindOf(err) != domain.KindUsage || err.Error() != "中止しました" {
+					t.Errorf("err = %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("取り消しても戻らない")
+			}
+		})
+	}
+
+	t.Run("ctx が取り消し済みなら、読み始めずに「中止しました」を返す", func(t *testing.T) {
+		// Arrange
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		br := bufio.NewReader(strings.NewReader("abc\n"))
+		var errb bytes.Buffer
+		p := termPrompter{ctx: ctx, in: br, out: &errb}
+
+		// Act
+		_, err := p.Ask("ID", "def")
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUsage || err.Error() != "中止しました" {
+			t.Errorf("err = %v", err)
+		}
+		if rest, _ := br.ReadString('\n'); rest != "abc\n" {
+			t.Errorf("読んでしまった: 残り=%q", rest)
+		}
+	})
+}
+
+// watchWriter は、書かれたものを貯め、want を含む書き込みが来たら seen を閉じる。
+type watchWriter struct {
+	mu   sync.Mutex
+	buf  strings.Builder
+	want string
+	seen chan struct{}
+	once sync.Once
+}
+
+func newWatchWriter(want string) *watchWriter {
+	return &watchWriter{want: want, seen: make(chan struct{})}
+}
+
+func (w *watchWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(p)
+	if strings.Contains(w.buf.String(), w.want) {
+		w.once.Do(func() { close(w.seen) })
+	}
+	return len(p), nil
+}
+
+func (w *watchWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestSetupCommandCancel(t *testing.T) {
+	t.Run("質問の途中で Ctrl-C（ctx の取り消し）が来たら、次の行を待たずに終了コード 2 の「中止しました」で止まる", func(t *testing.T) {
+		// Arrange
+		d, _, _, cloud, _ := setupDeps(t, "")
+		pr, pw := io.Pipe() // 何も書かない
+		t.Cleanup(func() { _ = pw.Close() })
+		d.Stdin = pr
+		errw := newWatchWriter("プロジェクト ID")
+		d.Stderr = errw
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		codeCh := make(chan int, 1)
+
+		// Act
+		go func() { codeCh <- Execute(ctx, d, []string{"setup"}) }()
+		<-errw.seen
+		cancel()
+
+		// Assert
+		select {
+		case code := <-codeCh:
+			if code != 2 || !strings.Contains(errw.String(), "中止しました") || strings.Contains(errw.String(), "gcloud projects") {
+				t.Errorf("code=%d err=%q", code, errw.String())
+			}
+			if strings.Contains(strings.Join(cloud.calls, ","), "Project") {
+				t.Errorf("gcloud のプロジェクト操作が呼ばれた: %v", cloud.calls)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("取り消しても戻らない")
 		}
 	})
 }

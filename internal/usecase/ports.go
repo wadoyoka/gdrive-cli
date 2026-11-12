@@ -27,7 +27,7 @@ type PolicyStore interface {
 type LoginOptions struct {
 	NoBrowser bool
 	Prompt    io.Writer // URL と案内を書く先（標準エラー）
-	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）。Login が戻ったあとも読み続けることがあるので、同じ Reader を使い回さないこと
+	Input     io.Reader // --no-browser のとき、貼り付けを読む元（標準入力）。Login が戻ったあとも読み続けることがある。ほかと共有してよいのは、Login が戻ったあとに誰もその Reader から読まないときだけ（setup は質問役と共有するが、ログインのあとは何も読まない）
 }
 
 // AuthInspection は、保存したものが今の鍵で読めるかの結果。
@@ -36,6 +36,7 @@ type AuthInspection struct {
 	ClientSecret bool   // client_secret.enc があり、今の鍵で読める
 	Token        bool   // token.enc があり、今の鍵で読める
 	Problem      string // 読めない理由。問題がなければ ""
+	ProjectID    string // 読めた client_secret.enc の installed.project_id。分からなければ ""。秘密は入れない
 }
 
 // Authenticator は、Google へのログインとトークンの置き場。

@@ -36,9 +36,13 @@ const (
 )
 
 const (
-	msgNoKey    = "鍵が見つかりません。`gdrive-cli login --client-secret <JSON>` をやり直してください"
-	msgMismatch = "今の鍵で読めません。`gdrive-cli login --client-secret <JSON>` をやり直してください"
-	msgLegacy   = "古い形式のファイルがあります。`gdrive-cli login --client-secret <JSON>` をやり直してください"
+	msgNoKey = "鍵が見つかりません。`gdrive-cli login --client-secret <JSON>` をやり直してください"
+	// msgNoKeyFileHint は、OS のキーチェーンに鍵がないのに、設定ディレクトリに key があるときの文言。
+	msgNoKeyFileHint = "鍵が見つかりません。設定ディレクトリに key があります。`GDRIVE_CLI_KEYRING=file` を付け忘れていませんか。付け忘れでなければ、`gdrive-cli login --client-secret <JSON>` をやり直してください"
+	msgMismatch      = "今の鍵で読めません。`gdrive-cli login --client-secret <JSON>` をやり直してください"
+	msgLegacy        = "古い形式のファイルがあります。`gdrive-cli login --client-secret <JSON>` をやり直してください"
+	msgNotDesktop    = "client_secret の形式が正しくありません（デスクトップアプリの OAuth クライアントの JSON を指定してください）"
+	msgWebClient     = "client_secret の種類が違います（ウェブアプリケーションなどのクライアントです）。デスクトップアプリの OAuth クライアントの JSON を指定してください"
 )
 
 // Auth は、Google へのログインと、設定ディレクトリのトークンを扱う。
@@ -151,13 +155,22 @@ func (a *Auth) readSealed(name, kind string) ([]byte, error) {
 		return nil, err
 	}
 	if !found {
-		return nil, domain.Errorf(domain.KindSetup, "%s", msgNoKey)
+		return nil, domain.Errorf(domain.KindSetup, "%s", a.noKeyMessage())
 	}
 	plain, err := openSecret(key, kind, sealed)
 	if err != nil {
 		return nil, domain.Errorf(domain.KindSetup, "%s", msgMismatch).Wrap(err)
 	}
 	return plain, nil
+}
+
+// noKeyMessage は、鍵が見つからないときの文言。OS のキーチェーンを見ていて、設定ディレクトリに key があれば、
+// GDRIVE_CLI_KEYRING=file の付け忘れを疑う一言を足す（付け忘れたまま取り込み直すと、新しい鍵で上書きしてしまうため）。
+func (a *Auth) noKeyMessage() string {
+	if a.Keys.Kind() == "os" && fileExists(filepath.Join(a.Dir, keyFileName)) {
+		return msgNoKeyFileHint
+	}
+	return msgNoKey
 }
 
 func (a *Auth) writeSealed(name, kind string, plain []byte) error {
@@ -215,19 +228,33 @@ func readClientSecretFile(path string) (data []byte, projectID string, err error
 	if err != nil {
 		return nil, "", domain.Errorf(domain.KindUsage, "client_secret のファイルを読めません: %s", path).Wrap(err)
 	}
+	projectID, err = parseClientSecret(data)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, projectID, nil
+}
+
+// parseClientSecret は、client_secret の JSON がデスクトップアプリの OAuth クライアントのものかを検め、
+// installed.project_id を返す。ConfigFromJSON は web も受け付けるが、web のクライアントでは
+// ループバックへのリダイレクトが通らないので、installed がない、または web があれば KindUsage で断る。
+func parseClientSecret(data []byte) (projectID string, err error) {
 	if _, err := google.ConfigFromJSON(data, drive.DriveFileScope); err != nil {
-		return nil, "", domain.Errorf(domain.KindUsage, "client_secret の形式が正しくありません（デスクトップアプリの OAuth クライアントの JSON を指定してください）").
-			WithDetails(err.Error()).Wrap(err)
+		return "", domain.Errorf(domain.KindUsage, "%s", msgNotDesktop).WithDetails(err.Error()).Wrap(err)
 	}
 	var doc struct {
-		Installed struct {
+		Installed *struct {
 			ProjectID string `json:"project_id"`
 		} `json:"installed"`
+		Web *struct{} `json:"web"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, "", domain.Errorf(domain.KindUsage, "client_secret の形式が正しくありません").Wrap(err)
+		return "", domain.Errorf(domain.KindUsage, "%s", msgNotDesktop).Wrap(err)
 	}
-	return data, doc.Installed.ProjectID, nil
+	if doc.Installed == nil || doc.Web != nil {
+		return "", domain.Errorf(domain.KindUsage, "%s", msgWebClient)
+	}
+	return doc.Installed.ProjectID, nil
 }
 
 // ClientSecretProjectID は、path の client_secret を検めて、installed.project_id を返す。何も保存しない。
@@ -295,14 +322,16 @@ func (a *Auth) Inspect() (usecase.AuthInspection, error) {
 		return insp, err
 	}
 	if !found {
-		insp.Problem = msgNoKey
+		insp.Problem = a.noKeyMessage()
 		return insp, nil
 	}
 	if hasCS {
-		_, err := a.readSealed(clientSecretName, secretKindClientSecret)
+		data, err := a.readSealed(clientSecretName, secretKindClientSecret)
 		insp.ClientSecret = err == nil
 		if err != nil {
 			insp.Problem = msgMismatch
+		} else if pid, perr := parseClientSecret(data); perr == nil {
+			insp.ProjectID = pid // 秘密ではない project_id だけを返す
 		}
 	}
 	if hasTok {

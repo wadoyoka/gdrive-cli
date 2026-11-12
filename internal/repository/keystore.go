@@ -15,6 +15,9 @@ const keyringService = "gdrive-cli"
 
 const keyLength = 32
 
+// keyFileName は、GDRIVE_CLI_KEYRING=file のときに鍵を置く、設定ディレクトリの中のファイルの名前。
+const keyFileName = "key"
+
 // KeyStore は、暗号化の鍵の置き場。
 type KeyStore interface {
 	// Kind は "os" か "file"。不正な GDRIVE_CLI_KEYRING のときはその値。
@@ -131,7 +134,7 @@ func newFileKeyStore(dir string) KeyStore { return &fileKeyStore{dir: dir} }
 
 func (s *fileKeyStore) Kind() string { return "file" }
 
-func (s *fileKeyStore) path() string { return filepath.Join(s.dir, "key") }
+func (s *fileKeyStore) path() string { return filepath.Join(s.dir, keyFileName) }
 
 func (s *fileKeyStore) unreadable(err error) error {
 	e := domain.Errorf(domain.KindSetup, "鍵のファイル（%s）を読めません。消すと、暗号化したファイルは読めなくなります", s.path())

@@ -20,6 +20,7 @@ type fakeAuth struct {
 	keyStore  string
 	problem   string
 	inspErr   error
+	projectID string // Inspect が返す、取り込み済みの client_secret の project_id
 
 	// ClientSecretProjectID の偽物。
 	secretProjects map[string]string // path -> project_id
@@ -58,7 +59,11 @@ func (a *fakeAuth) Logout(context.Context) error {
 func (a *fakeAuth) HasToken() bool { return a.hasToken }
 
 func (a *fakeAuth) Inspect() (AuthInspection, error) {
-	return AuthInspection{KeyStore: a.keyStore, ClientSecret: a.hasSecret, Token: a.hasToken, Problem: a.problem}, a.inspErr
+	insp := AuthInspection{KeyStore: a.keyStore, ClientSecret: a.hasSecret, Token: a.hasToken, Problem: a.problem}
+	if a.hasSecret {
+		insp.ProjectID = a.projectID
+	}
+	return insp, a.inspErr
 }
 
 func newRemote(d Drive) Remote {

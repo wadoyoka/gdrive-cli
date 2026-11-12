@@ -23,6 +23,7 @@ type fakeCloud struct {
 	enableFails  int // EnableDrive が先に失敗する回数
 	enableCalls  int
 	enableErrMsg string
+	onDescribe   func(ctx context.Context) error // nil でなければ DescribeProject で呼び、その誤りを返す
 }
 
 func (c *fakeCloud) Installed() bool {
@@ -35,8 +36,13 @@ func (c *fakeCloud) ActiveAccount(context.Context) (string, error) {
 	return c.account, nil
 }
 
-func (c *fakeCloud) DescribeProject(_ context.Context, id string) (CloudProject, bool, error) {
+func (c *fakeCloud) DescribeProject(ctx context.Context, id string) (CloudProject, bool, error) {
 	c.calls = append(c.calls, "describe:"+id)
+	if c.onDescribe != nil {
+		if err := c.onDescribe(ctx); err != nil {
+			return CloudProject{}, false, err
+		}
+	}
 	p, ok := c.projects[id]
 	return p, ok, nil
 }
@@ -188,7 +194,7 @@ func TestSetup(t *testing.T) {
 		if got != want || got.RootFolderLink == "" {
 			t.Errorf("got %+v", got)
 		}
-		if !f.ask.saidContains("[作成]") {
+		if !f.ask.saidContains("[作成]") || !f.ask.saidContains("やり直すときは `gdrive-cli setup --project "+defaultSetupID+"` を使ってください") {
 			t.Errorf("said = %v", f.ask.said)
 		}
 		wantURL := domain.AuthConsoleURL("overview", defaultSetupID)
@@ -683,6 +689,277 @@ func TestSetup(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("デスクトップアプリでない（web の）JSON なら理由を出して聞き直す", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.secretErrs["/web.json"] = domain.Errorf(domain.KindUsage, "client_secret の種類が違います。デスクトップアプリの OAuth クライアントの JSON を指定してください")
+		f.ask.answers = []askAnswer{{val: "/web.json"}, {val: "/s.json"}}
+
+		// Act
+		_, err := f.u.Run(context.Background(), f.input(defaultSetupID, ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.auth.imported != "/s.json" || !f.ask.saidContains("デスクトップアプリの OAuth クライアントの JSON を指定してください") {
+			t.Errorf("imported=%q said=%v", f.auth.imported, f.ask.said)
+		}
+	})
+}
+
+func TestSetupDefaultProject(t *testing.T) {
+	const rerunStored = "やり直すときは `gdrive-cli setup --project stored-proj-1` を使ってください"
+
+	t.Run("設定済みの PC で --project なしに Enter だけで再実行すると、保存したプロジェクトを使い、作らず、ログインも飛ばす", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret, f.auth.hasToken = true, true
+		f.auth.projectID = "stored-proj-1"
+		f.cloud.projects["stored-proj-1"] = CloudProject{ID: "stored-proj-1", State: "ACTIVE"}
+		f.ask.answers = []askAnswer{{val: ""}}
+
+		// Act
+		got, err := f.u.Run(context.Background(), f.input("", ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(f.ask.defs, []string{"stored-proj-1"}) {
+			t.Errorf("既定値 = %v", f.ask.defs)
+		}
+		wantCloud := []string{"installed", "account", "describe:stored-proj-1", "enable:stored-proj-1"}
+		if !slices.Equal(f.cloud.calls, wantCloud) {
+			t.Errorf("cloud = %v", f.cloud.calls)
+		}
+		if len(f.auth.calls) != 0 {
+			t.Errorf("auth = %v", f.auth.calls)
+		}
+		if got.ProjectID != "stored-proj-1" || got.Email != "user@example.com" {
+			t.Errorf("got %+v", got)
+		}
+		if !f.ask.saidContains(rerunStored) {
+			t.Errorf("said = %v", f.ask.said)
+		}
+	})
+
+	t.Run("--client-secret があり --project がなければ、JSON の project_id を既定値にする（保存したものより優先）", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret = true
+		f.auth.projectID = "stored-proj-1"
+		f.auth.secretProjects["/s.json"] = "json-proj-1"
+		f.cloud.projects["json-proj-1"] = CloudProject{ID: "json-proj-1", State: "ACTIVE"}
+		f.ask.answers = []askAnswer{{val: ""}}
+
+		// Act
+		got, err := f.u.Run(context.Background(), f.input("", "/s.json"))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(f.ask.defs, []string{"json-proj-1"}) || got.ProjectID != "json-proj-1" {
+			t.Errorf("既定値 = %v got=%+v", f.ask.defs, got)
+		}
+		if slices.ContainsFunc(f.cloud.calls, func(c string) bool { return strings.HasPrefix(c, "create:") }) {
+			t.Errorf("cloud = %v", f.cloud.calls)
+		}
+		if len(f.ask.confirmQ) != 0 || f.auth.imported != "/s.json" {
+			t.Errorf("confirm=%v imported=%q", f.ask.confirmQ, f.auth.imported)
+		}
+	})
+
+	for _, projectID := range []string{"", "my-proj-1"} {
+		t.Run("--client-secret の JSON が正しくなければ、gcloud を呼ぶ前にそのまま返す（--project="+projectID+"）", func(t *testing.T) {
+			// Arrange
+			f := newSetupFixture(t)
+			f.auth.secretErrs["/bad.json"] = domain.Errorf(domain.KindUsage, "形式が正しくありません")
+
+			// Act
+			_, err := f.u.Run(context.Background(), f.input(projectID, "/bad.json"))
+
+			// Assert
+			if domain.KindOf(err) != domain.KindUsage || !strings.Contains(err.Error(), "形式が正しくありません") {
+				t.Errorf("err = %v", err)
+			}
+			if len(f.cloud.calls) != 0 || len(f.ask.asked) != 0 || len(f.auth.calls) != 0 {
+				t.Errorf("cloud=%v asked=%v auth=%v", f.cloud.calls, f.ask.asked, f.auth.calls)
+			}
+		})
+	}
+
+	t.Run("何も取り込んでいなければ、既定値はランダムな ID", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.projectID = "stored-proj-1" // 取り込み済みでなければ使わない
+		f.ask.answers = []askAnswer{{val: ""}, {val: "/s.json"}}
+
+		// Act
+		_, err := f.u.Run(context.Background(), f.input("", ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(f.ask.defs) == 0 || f.ask.defs[0] != defaultSetupID {
+			t.Errorf("既定値 = %v", f.ask.defs)
+		}
+	})
+
+	t.Run("取り込み済みでも project_id が分からなければ、既定値はランダムな ID", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret = true
+		f.ask.answers = []askAnswer{{val: ""}}
+
+		// Act
+		_, err := f.u.Run(context.Background(), f.input("", ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(f.ask.defs, []string{defaultSetupID}) {
+			t.Errorf("既定値 = %v", f.ask.defs)
+		}
+	})
+
+	t.Run("--project はどの既定値よりも優先し、ID を尋ねない", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret = true
+		f.auth.projectID = "stored-proj-1"
+		f.auth.secretProjects["/s.json"] = "json-proj-1"
+		f.ask.confirms = []bool{true}
+
+		// Act
+		got, err := f.u.Run(context.Background(), f.input("my-proj-1", "/s.json"))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ProjectID != "my-proj-1" || len(f.ask.asked) != 0 || !slices.Contains(f.cloud.calls, "describe:my-proj-1") {
+			t.Errorf("got=%+v asked=%v cloud=%v", got, f.ask.asked, f.cloud.calls)
+		}
+		if !f.ask.saidContains("やり直すときは `gdrive-cli setup --project my-proj-1` を使ってください") {
+			t.Errorf("said = %v", f.ask.said)
+		}
+	})
+}
+
+func TestSetupCancel(t *testing.T) {
+	t.Run("ctx が取り消されていたら、gcloud を呼ばずに「中止しました」の KindUsage", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		// Act
+		_, err := f.u.Run(ctx, f.input("my-proj-1", "/s.json"))
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUsage || err.Error() != "中止しました" {
+			t.Errorf("err = %v", err)
+		}
+		if len(f.cloud.calls) != 0 || len(f.auth.calls) != 0 {
+			t.Errorf("cloud=%v auth=%v", f.cloud.calls, f.auth.calls)
+		}
+	})
+
+	t.Run("gcloud が取り消しで失敗したら、gcloud の失敗ではなく「中止しました」を返す", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		f.cloud.onDescribe = func(ctx context.Context) error {
+			cancel()
+			return domain.Errorf(domain.KindUnexpected, "gcloud projects describe が失敗しました").Wrap(ctx.Err())
+		}
+
+		// Act
+		_, err := f.u.Run(ctx, f.input("my-proj-1", "/s.json"))
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUsage || err.Error() != "中止しました" {
+			t.Errorf("err = %v", err)
+		}
+		if slices.ContainsFunc(f.cloud.calls, func(c string) bool { return strings.HasPrefix(c, "create:") }) {
+			t.Errorf("cloud = %v", f.cloud.calls)
+		}
+	})
+
+	t.Run("API の有効化を待つあいだに取り消されたら「中止しました」で、やり直さない", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		f.cloud.enableFails = 100
+		f.cloud.enableErrMsg = "まだ反映されていない"
+		f.u.Wait = func(ctx context.Context, d time.Duration) error {
+			cancel()
+			return waitCtx(ctx, d)
+		}
+
+		// Act
+		_, err := f.u.Run(ctx, f.input("my-proj-1", "/s.json"))
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUsage || err.Error() != "中止しました" {
+			t.Errorf("err = %v", err)
+		}
+		if f.cloud.enableCalls != 1 || len(f.auth.calls) != 0 {
+			t.Errorf("enableCalls=%d auth=%v", f.cloud.enableCalls, f.auth.calls)
+		}
+	})
+}
+
+func TestSetupDeadToken(t *testing.T) {
+	failingRemote := func(err error) Remote {
+		return Remote{
+			Open:   func(context.Context) (Drive, error) { return nil, err },
+			State:  &fakeState{},
+			Locker: &fakeLocker{},
+		}
+	}
+
+	t.Run("ログイン済みでも status が KindSetup（Google 側でトークンが無効）なら、ログインし直す", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret, f.auth.hasToken = true, true
+		f.u.Status.Remote = failingRemote(domain.Errorf(domain.KindSetup, "トークンが取り消されています"))
+
+		// Act
+		got, err := f.u.Run(context.Background(), f.input(defaultSetupID, ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(f.auth.calls, []string{"login"}) {
+			t.Errorf("auth = %v", f.auth.calls)
+		}
+		if got.Email != "user@example.com" || got.RootFolderLink == "" {
+			t.Errorf("got %+v", got)
+		}
+		if f.ask.saidContains("[省略] ログイン済みです") {
+			t.Errorf("said = %v", f.ask.said)
+		}
+	})
+
+	t.Run("status が KindSetup 以外で失敗したら、ログインせずにそのエラーを返す", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.auth.hasSecret, f.auth.hasToken = true, true
+		f.u.Status.Remote = failingRemote(domain.Errorf(domain.KindUnexpected, "通信できません"))
+
+		// Act
+		_, err := f.u.Run(context.Background(), f.input(defaultSetupID, ""))
+
+		// Assert
+		if domain.KindOf(err) != domain.KindUnexpected || !strings.Contains(err.Error(), "通信できません") {
+			t.Errorf("err = %v", err)
+		}
+		if len(f.auth.calls) != 0 {
+			t.Errorf("auth = %v", f.auth.calls)
+		}
+	})
 }
 
 func TestNormalizeInputPath(t *testing.T) {
@@ -700,6 +977,31 @@ func TestNormalizeInputPath(t *testing.T) {
 			``:                "",
 			`'`:               "'",
 			`relative/x.json`: "relative/x.json",
+		}
+		for in, want := range cases {
+			// Act
+			got, err := normalizeInputPath(in)
+
+			// Assert
+			if err != nil || got != want {
+				t.Errorf("%q: got %q, %v; want %q", in, got, err, want)
+			}
+		}
+	})
+
+	t.Run("引用符の外では、バックスラッシュの後ろの1文字をそのまま残す", func(t *testing.T) {
+		// Arrange
+		t.Setenv("HOME", "/home/u")
+		cases := map[string]string{
+			`x\ \(1\).json`:         "x (1).json",
+			`/a/b\ \[x\]\&\'y.json`: "/a/b [x]&'y.json",
+			`/a/b\\c.json`:          `/a/b\c.json`,
+			`~/a\ \(1\).json`:       "/home/u/a (1).json",
+			`\~/x.json`:             "~/x.json",
+			`/a/b\`:                 `/a/b\`,
+			`/a/\日本.json`:           "/a/日本.json",
+			`'/a/b\ c.json'`:        `/a/b\ c.json`,
+			`"/a/(1).json"`:         "/a/(1).json",
 		}
 		for in, want := range cases {
 			// Act
