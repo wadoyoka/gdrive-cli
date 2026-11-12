@@ -55,7 +55,7 @@ func TestMissingTests(t *testing.T) {
 		want        []string
 	}{
 		{"_test.go の無い domain のパッケージだけを返す", "testdata/tests-missing/internal", []string{"domain"}},
-		{"domain と usecase（サブパッケージを含む）にテストがあれば何も返さない", "testdata/tests-ok/internal", nil},
+		{"domain と usecase（サブパッケージを含む）にテストがあれば何も返さない。名前が test で終わるテスト用の部品のパッケージには求めない", "testdata/tests-ok/internal", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

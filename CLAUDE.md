@@ -29,11 +29,13 @@ Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`
 | 層 | 置き場所 | 役割 | import してよい層 |
 |---|---|---|---|
 | cli | `internal/cli/` | cobra のコマンド定義、フラグの解釈、出力の整形、終了コードへの変換 | cli、usecase、domain |
-| usecase | `internal/usecase/` | 1操作につき1ファイル。`ports.go` に repository が満たすインターフェースを置く | usecase、domain |
-| domain | `internal/domain/` | 外部に触れない処理（パスの解釈、計画と衝突の判定、エラーの種類など） | domain |
-| repository | `internal/repository/` | Drive API、OAuth、設定ファイル、手元のファイルなど外部とのやりとり | repository、usecase（ports）、domain |
+| usecase | `internal/usecase/` | 直下に `ports.go`（repository が満たすインターフェース）と、ドライブへの接続・パスの解決。操作の手順はサブパッケージ（`account/`・`remotefs/`・`setup/`・`transfer/`）に1操作1ファイルで置く | usecase、domain |
+| domain | `internal/domain/` | 外部に触れない処理。直下はどの層も使うもの（エラーの種類、項目、パス）。個別の決まりはサブパッケージ（`plan/`・`policy/`・`gcp/`・`configdir/`） | domain |
+| repository | `internal/repository/` | 外部とのやりとり。相手ごとのサブパッケージ（`auth/`・`driveapi/`・`gcloud/`・`config/`・`browser/`・`atomicfile/`）に置く | repository、usecase（ports）、domain |
 
 - 入口は `cmd/gdrive-cli/main.go` の1つだけ。各層を組み立てるだけにする。
+- usecase・domain・repository は、層の中を関心ごとのサブパッケージに分ける。どのサブパッケージも使うものだけを層の直下に置き、直下からサブパッケージは import しない。新しいファイルは、関心の合うサブパッケージに置く。
+- usecase のテストで使い回す偽物は `internal/usecase/usecasetest/` に置く（`_test.go` はパッケージをまたいで使えないため）。
 - 依存の向きは `internal/archtest` と golangci-lint の depguard が確かめる（Google の API は repository だけ、cobra は cli と cmd だけ、`os/exec` は repository だけ）。
 
 ## タスクの管理（bd）

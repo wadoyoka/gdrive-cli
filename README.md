@@ -392,7 +392,7 @@ make test           # go test ./...
 - 実際の Drive を使う E2E テストは、既定では飛ばされる。先に `init` と `login` を済ませてから、次を実行する。ルートフォルダの下に `/e2e-<時刻>` を作り、終わると消す。
 
 ```bash
-GDRIVE_CLI_E2E=1 go test ./internal/repository/ -run TestE2E -v
+GDRIVE_CLI_E2E=1 go test ./internal/repository/driveapi/ -run TestE2E -v
 ```
 
 - ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、node、pnpm）。CI も同じ版を使う。

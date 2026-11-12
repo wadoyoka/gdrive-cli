@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
 )
 
 func newMvCommand(d Deps, asJSON *bool) *cobra.Command {
@@ -32,10 +32,10 @@ func newMvCommand(d Deps, asJSON *bool) *cobra.Command {
 }
 
 // writeMoveItems は、移したものを、JSON の配列か「<移動元>\t<移動先>\t<webViewLink>」の行で書く。
-func writeMoveItems(d Deps, asJSON bool, items []usecase.MoveItem) error {
+func writeMoveItems(d Deps, asJSON bool, items []remotefs.MoveItem) error {
 	if asJSON {
 		if items == nil {
-			items = []usecase.MoveItem{}
+			items = []remotefs.MoveItem{}
 		}
 		return writeJSON(d.Stdout, items)
 	}

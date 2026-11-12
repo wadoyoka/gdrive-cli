@@ -13,6 +13,8 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/setup"
 )
 
 // recCloud は、呼ばれたことを記録する偽の gcloud。
@@ -76,13 +78,13 @@ func setupDeps(t *testing.T, stdin string) (Deps, *bytes.Buffer, *bytes.Buffer, 
 		State:  stubState{},
 		Locker: stubLocker{},
 	}
-	d.Setup = usecase.Setup{
+	d.Setup = setup.Setup{
 		Init:   d.Init,
 		Policy: d.Policy,
 		Auth:   auth,
 		Cloud:  cloud,
-		Login:  usecase.Login{Auth: auth, Remote: r},
-		Status: usecase.Status{Dir: d.Init.Dir, Auth: auth, Remote: r},
+		Login:  account.Login{Auth: auth, Remote: r},
+		Status: account.Status{Dir: d.Init.Dir, Auth: auth, Remote: r},
 	}
 	return d, out, errb, cloud, auth
 }

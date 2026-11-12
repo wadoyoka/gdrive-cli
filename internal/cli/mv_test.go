@@ -9,6 +9,7 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
 )
 
 // partialDrive は、ルートの直下に a.txt、b.txt、フォルダ dir がある偽の Drive。
@@ -62,8 +63,8 @@ func withPartial(d Deps, failName string) Deps {
 		State:  stubState{},
 		Locker: stubLocker{},
 	}
-	d.Mkdir = usecase.Mkdir{Remote: r}
-	d.Move = usecase.Move{Remote: r}
+	d.Mkdir = remotefs.Mkdir{Remote: r}
+	d.Move = remotefs.Move{Remote: r}
 	return d
 }
 
@@ -123,7 +124,7 @@ func TestMvCommand(t *testing.T) {
 		code := Execute(context.Background(), d, []string{"--json", "mv", "/a.txt", "/b.txt", "/dir"})
 
 		// Assert
-		var items []usecase.MoveItem
+		var items []remotefs.MoveItem
 		if err := json.Unmarshal(out.Bytes(), &items); err != nil {
 			t.Fatalf("json: %v: %q", err, out.String())
 		}

@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
-	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/transfer"
 )
 
 func newDownloadCommand(d Deps, asJSON *bool) *cobra.Command {
@@ -22,7 +22,7 @@ func newDownloadCommand(d Deps, asJSON *bool) *cobra.Command {
 				}
 				sources = append(sources, p)
 			}
-			in := usecase.DownloadInput{
+			in := transfer.DownloadInput{
 				Sources: sources, DestDir: args[len(args)-1],
 				Parents: parents, Overwrite: overwrite, SkipExisting: skipExisting,
 			}

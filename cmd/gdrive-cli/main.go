@@ -11,8 +11,16 @@ import (
 	"golang.org/x/term"
 
 	"github.com/wadoyoka/gdrive-cli/internal/cli"
-	"github.com/wadoyoka/gdrive-cli/internal/repository"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/auth"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/browser"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/config"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/driveapi"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/gcloud"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/setup"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/transfer"
 )
 
 func main() {
@@ -24,42 +32,42 @@ func main() {
 }
 
 func run(ctx context.Context) int {
-	dir, err := repository.DefaultConfigDir()
+	dir, err := config.DefaultDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		return 1
 	}
-	configDir := repository.NewConfigDir(dir)
-	policy := repository.NewPolicyFile(dir)
-	keys := repository.NewKeyStore(dir, os.Getenv("GDRIVE_CLI_KEYRING"))
-	auth := repository.NewAuth(dir, keys, repository.NewLockFile(dir).Lock)
+	configDir := config.NewDir(dir)
+	policy := config.NewPolicyFile(dir)
+	keys := auth.NewKeyStore(dir, os.Getenv("GDRIVE_CLI_KEYRING"))
+	authn := auth.NewAuth(dir, keys, config.NewLockFile(dir).Lock)
 	remote := usecase.Remote{
-		Open:   repository.NewDriveOpener(auth),
-		State:  repository.NewStateFile(dir),
-		Locker: repository.NewLockFile(dir),
+		Open:   driveapi.NewOpener(authn),
+		State:  config.NewStateFile(dir),
+		Locker: config.NewLockFile(dir),
 	}
-	login := usecase.Login{Auth: auth, Remote: remote}
-	status := usecase.Status{Dir: configDir, Auth: auth, Remote: remote}
-	initUC := usecase.Init{Dir: configDir, Policy: policy}
+	login := account.Login{Auth: authn, Remote: remote}
+	status := account.Status{Dir: configDir, Auth: authn, Remote: remote}
+	initUC := setup.Init{Dir: configDir, Policy: policy}
 	return cli.Execute(ctx, cli.Deps{
 		Init:     initUC,
 		Login:    login,
-		Logout:   usecase.Logout{Auth: auth},
+		Logout:   account.Logout{Auth: authn},
 		Status:   status,
-		Mkdir:    usecase.Mkdir{Remote: remote},
-		List:     usecase.List{Remote: remote},
-		Upload:   usecase.Upload{Remote: remote},
-		Download: usecase.Download{Remote: remote},
-		Move:     usecase.Move{Remote: remote},
+		Mkdir:    remotefs.Mkdir{Remote: remote},
+		List:     remotefs.List{Remote: remote},
+		Upload:   transfer.Upload{Remote: remote},
+		Download: transfer.Download{Remote: remote},
+		Move:     remotefs.Move{Remote: remote},
 		Policy:   policy,
-		Setup: usecase.Setup{
+		Setup: setup.Setup{
 			Init:    initUC,
 			Policy:  policy,
-			Auth:    auth,
-			Cloud:   repository.NewGCloud(),
+			Auth:    authn,
+			Cloud:   gcloud.NewGCloud(),
 			Login:   login,
 			Status:  status,
-			OpenURL: repository.OpenBrowser,
+			OpenURL: browser.Open,
 		},
 		Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
 		Stdin:       os.Stdin,

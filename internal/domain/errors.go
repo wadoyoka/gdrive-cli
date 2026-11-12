@@ -1,4 +1,5 @@
 // Package domain は、どの層からも使われる純粋な中核（エラー、パス、項目など）を持つ。
+// 個別の決まりは、サブパッケージ（plan・policy・gcp・configdir）に置く。
 package domain
 
 import (

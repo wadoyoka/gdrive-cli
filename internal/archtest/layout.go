@@ -35,7 +35,8 @@ func CheckLayout(internalDir string) []string {
 }
 
 // MissingTests は、_test.go の無い domain と usecase のパッケージのディレクトリを返す。
-// .go のファイルが無いディレクトリはパッケージではないので見ない。
+// .go のファイルが無いディレクトリはパッケージではないので見ない。テスト用の部品を置く
+// パッケージ（testHelper）も見ない。
 //
 // パスは internalDir からの相対パス（区切りは "/"）で、名前の順に返す。Go が読まないもの
 // （testdata と、. か _ で始まる名前）は見ない。
@@ -78,12 +79,19 @@ func MissingTests(internalDir string) []string {
 	})
 
 	for dir, files := range pkgs {
-		if files.code && !files.test {
+		if files.code && !files.test && !testHelper(dir) {
 			found = append(found, dir)
 		}
 	}
 	slices.Sort(found)
 	return found
+}
+
+// testHelper は、dir がテスト用の部品を置くパッケージ（標準ライブラリの httptest のように、
+// 名前が test で終わるもの。usecase/usecasetest など）なら true を返す。
+// ほかのパッケージのテストが使う偽物の置き場で、確かめる処理を持たないので、テストを求めない。
+func testHelper(dir string) bool {
+	return strings.HasSuffix(path.Base(dir), "test")
 }
 
 // readDir は dir の中身を、. で始まる名前を除いて返す。dir が無ければ（まだ internal/ が

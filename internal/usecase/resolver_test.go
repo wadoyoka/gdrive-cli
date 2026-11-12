@@ -1,4 +1,4 @@
-package usecase
+package usecase_test
 
 import (
 	"context"
@@ -9,21 +9,14 @@ import (
 	"testing"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/usecasetest"
 )
 
-func mustPath(t *testing.T, s string) domain.RemotePath {
-	t.Helper()
-	p, err := domain.ParseRemotePath(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-func newTestResolver(t *testing.T) (*Resolver, *fakeDrive, *fakeState) {
-	d := newFakeDrive(t)
-	s := &fakeState{}
-	return NewResolver(d, s, &fakeLocker{}), d, s
+func newTestResolver(t *testing.T) (*usecase.Resolver, *usecasetest.Drive, *usecasetest.State) {
+	d := usecasetest.NewDrive(t)
+	s := &usecasetest.State{}
+	return usecase.NewResolver(d, s, &usecasetest.Locker{}), d, s
 }
 
 func TestResolver(t *testing.T) {
@@ -39,8 +32,8 @@ func TestResolver(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if d.callCount("CreateRootFolder") != 1 || s.id != root.ID || root.Name != RootFolderName {
-			t.Errorf("create=%d state=%q root=%+v", d.callCount("CreateRootFolder"), s.id, root)
+		if d.CallCount("CreateRootFolder") != 1 || s.ID != root.ID || root.Name != usecase.RootFolderName {
+			t.Errorf("create=%d state=%q root=%+v", d.CallCount("CreateRootFolder"), s.ID, root)
 		}
 	})
 
@@ -53,16 +46,16 @@ func TestResolver(t *testing.T) {
 		_, err := r.Root(ctx)
 
 		// Assert
-		if err != nil || d.callCount("FindRootFolders") != 1 {
-			t.Errorf("err=%v find=%d", err, d.callCount("FindRootFolders"))
+		if err != nil || d.CallCount("FindRootFolders") != 1 {
+			t.Errorf("err=%v find=%d", err, d.CallCount("FindRootFolders"))
 		}
 	})
 
 	t.Run("保存した ID のルートを使う", func(t *testing.T) {
 		// Arrange
 		r, d, s := newTestResolver(t)
-		saved := d.addRootFolder()
-		s.id = saved.ID
+		saved := d.AddRootFolder()
+		s.ID = saved.ID
 
 		// Act
 		root, err := r.Root(ctx)
@@ -71,17 +64,17 @@ func TestResolver(t *testing.T) {
 		if err != nil || root.ID != saved.ID {
 			t.Fatalf("root=%+v err=%v", root, err)
 		}
-		if d.callCount("FindRootFolders") != 0 {
-			t.Errorf("FindRootFolders = %d", d.callCount("FindRootFolders"))
+		if d.CallCount("FindRootFolders") != 0 {
+			t.Errorf("FindRootFolders = %d", d.CallCount("FindRootFolders"))
 		}
 	})
 
 	t.Run("保存した ID がゴミ箱なら KindSetup で、新しく作らない", func(t *testing.T) {
 		// Arrange
 		r, d, s := newTestResolver(t)
-		saved := d.addRootFolder()
-		d.setTrashed(saved.ID, true)
-		s.id = saved.ID
+		saved := d.AddRootFolder()
+		d.SetTrashed(saved.ID, true)
+		s.ID = saved.ID
 
 		// Act
 		_, err := r.Root(ctx)
@@ -90,15 +83,15 @@ func TestResolver(t *testing.T) {
 		if domain.KindOf(err) != domain.KindSetup || !strings.Contains(err.Error(), "ゴミ箱") {
 			t.Errorf("err = %v", err)
 		}
-		if d.callCount("CreateRootFolder") != 0 {
-			t.Errorf("CreateRootFolder = %d", d.callCount("CreateRootFolder"))
+		if d.CallCount("CreateRootFolder") != 0 {
+			t.Errorf("CreateRootFolder = %d", d.CallCount("CreateRootFolder"))
 		}
 	})
 
 	t.Run("ID がなく、ゴミ箱のルートしかなければ KindSetup", func(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
-		d.setTrashed(d.addRootFolder().ID, true)
+		d.SetTrashed(d.AddRootFolder().ID, true)
 
 		// Act
 		_, err := r.Root(ctx)
@@ -107,23 +100,23 @@ func TestResolver(t *testing.T) {
 		if domain.KindOf(err) != domain.KindSetup {
 			t.Errorf("err = %v", err)
 		}
-		if d.callCount("CreateRootFolder") != 0 {
-			t.Errorf("CreateRootFolder = %d", d.callCount("CreateRootFolder"))
+		if d.CallCount("CreateRootFolder") != 0 {
+			t.Errorf("CreateRootFolder = %d", d.CallCount("CreateRootFolder"))
 		}
 	})
 
 	t.Run("ルートが 2 つなら古いほうを選び、警告を出す", func(t *testing.T) {
 		// Arrange
 		r, d, s := newTestResolver(t)
-		older := d.addRootFolder()
-		newer := d.addRootFolder()
+		older := d.AddRootFolder()
+		newer := d.AddRootFolder()
 
 		// Act
 		root, err := r.Root(ctx)
 
 		// Assert
-		if err != nil || root.ID != older.ID || s.id != older.ID {
-			t.Fatalf("root=%+v state=%q err=%v", root, s.id, err)
+		if err != nil || root.ID != older.ID || s.ID != older.ID {
+			t.Fatalf("root=%+v state=%q err=%v", root, s.ID, err)
 		}
 		w := r.Warnings()
 		if len(w) != 1 || !strings.Contains(w[0], newer.ID) || !strings.Contains(w[0], newer.WebViewLink) {
@@ -134,17 +127,17 @@ func TestResolver(t *testing.T) {
 	t.Run("保存した ID が消えていたら探し直す", func(t *testing.T) {
 		// Arrange
 		r, d, s := newTestResolver(t)
-		gone := d.addRootFolder()
-		d.remove(gone.ID)
-		s.id = gone.ID
-		alive := d.addRootFolder()
+		gone := d.AddRootFolder()
+		d.Remove(gone.ID)
+		s.ID = gone.ID
+		alive := d.AddRootFolder()
 
 		// Act
 		root, err := r.Root(ctx)
 
 		// Assert
-		if err != nil || root.ID != alive.ID || s.id != alive.ID {
-			t.Errorf("root=%+v state=%q err=%v", root, s.id, err)
+		if err != nil || root.ID != alive.ID || s.ID != alive.ID {
+			t.Errorf("root=%+v state=%q err=%v", root, s.ID, err)
 		}
 	})
 
@@ -152,11 +145,11 @@ func TestResolver(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
-		a := d.addFolder(root.ID, "a")
-		f := d.addFile(a.ID, "x.txt", []byte("hi"))
+		a := d.AddFolder(root.ID, "a")
+		f := d.AddFile(a.ID, "x.txt", []byte("hi"))
 
 		// Act
-		got, err := r.Resolve(ctx, mustPath(t, "/a/x.txt"))
+		got, err := r.Resolve(ctx, usecasetest.MustPath(t, "/a/x.txt"))
 		top, err2 := r.Resolve(ctx, domain.RootPath())
 
 		// Assert
@@ -173,7 +166,7 @@ func TestResolver(t *testing.T) {
 		r, _, _ := newTestResolver(t)
 
 		// Act
-		_, err := r.Resolve(ctx, mustPath(t, "/nothing/here"))
+		_, err := r.Resolve(ctx, usecasetest.MustPath(t, "/nothing/here"))
 
 		// Assert
 		if domain.KindOf(err) != domain.KindNotFound || !strings.Contains(err.Error(), "/nothing/here") {
@@ -185,10 +178,10 @@ func TestResolver(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
-		d.addFile(root.ID, "f", nil)
+		d.AddFile(root.ID, "f", nil)
 
 		// Act
-		_, err := r.Resolve(ctx, mustPath(t, "/f/g"))
+		_, err := r.Resolve(ctx, usecasetest.MustPath(t, "/f/g"))
 
 		// Assert
 		if domain.KindOf(err) != domain.KindNotFound || !strings.Contains(err.Error(), "/f はフォルダではありません") {
@@ -200,11 +193,11 @@ func TestResolver(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
-		d.addFolder(root.ID, "dup")
-		d.addFolder(root.ID, "dup")
+		d.AddFolder(root.ID, "dup")
+		d.AddFolder(root.ID, "dup")
 
 		// Act
-		_, err := r.Resolve(ctx, mustPath(t, "/dup"))
+		_, err := r.Resolve(ctx, usecasetest.MustPath(t, "/dup"))
 
 		// Assert
 		var de *domain.Error
@@ -220,17 +213,17 @@ func TestResolver(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
-		d.addFolder(root.ID, "a")
+		d.AddFolder(root.ID, "a")
 
 		// Act
-		got, created, err := r.EnsureFolder(ctx, mustPath(t, "/a/b/c"))
-		_, again, err2 := r.EnsureFolder(ctx, mustPath(t, "/a/b/c"))
+		got, created, err := r.EnsureFolder(ctx, usecasetest.MustPath(t, "/a/b/c"))
+		_, again, err2 := r.EnsureFolder(ctx, usecasetest.MustPath(t, "/a/b/c"))
 
 		// Assert
 		if err != nil || err2 != nil {
 			t.Fatal(err, err2)
 		}
-		want := []domain.RemotePath{mustPath(t, "/a/b"), mustPath(t, "/a/b/c")}
+		want := []domain.RemotePath{usecasetest.MustPath(t, "/a/b"), usecasetest.MustPath(t, "/a/b/c")}
 		if !reflect.DeepEqual(created, want) || got.Path != "/a/b/c" || got.Name != "c" {
 			t.Errorf("created=%v got=%+v", created, got)
 		}
@@ -243,10 +236,10 @@ func TestResolver(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(ctx)
-		d.addFile(root.ID, "f", nil)
+		d.AddFile(root.ID, "f", nil)
 
 		// Act
-		_, _, err := r.EnsureFolder(ctx, mustPath(t, "/f/g"))
+		_, _, err := r.EnsureFolder(ctx, usecasetest.MustPath(t, "/f/g"))
 
 		// Assert
 		if domain.KindOf(err) != domain.KindConflict || !strings.Contains(err.Error(), "/f はファイルです") {
@@ -257,22 +250,22 @@ func TestResolver(t *testing.T) {
 
 // lockWritesState は、ロックを取るとき、ほかのプロセスが先に終えた状況（state に ID が入る）を作る。
 type lockWritesState struct {
-	state *fakeState
+	state *usecasetest.State
 	id    string
 }
 
 func (l *lockWritesState) Lock(context.Context) (func(), error) {
-	l.state.id = l.id
+	l.state.ID = l.id
 	return func() {}, nil
 }
 
 func TestResolverRace(t *testing.T) {
 	t.Run("ロックを待つ間にほかが保存していたら、探さず作らずそれを使う", func(t *testing.T) {
 		// Arrange
-		d := newFakeDrive(t)
-		s := &fakeState{}
-		other := d.addRootFolder()
-		r := NewResolver(d, s, &lockWritesState{state: s, id: other.ID})
+		d := usecasetest.NewDrive(t)
+		s := &usecasetest.State{}
+		other := d.AddRootFolder()
+		r := usecase.NewResolver(d, s, &lockWritesState{state: s, id: other.ID})
 
 		// Act
 		root, err := r.Root(context.Background())
@@ -281,8 +274,8 @@ func TestResolverRace(t *testing.T) {
 		if err != nil || root.ID != other.ID {
 			t.Fatalf("root=%+v err=%v", root, err)
 		}
-		if d.callCount("CreateRootFolder") != 0 || d.callCount("FindRootFolders") != 0 {
-			t.Errorf("create=%d find=%d", d.callCount("CreateRootFolder"), d.callCount("FindRootFolders"))
+		if d.CallCount("CreateRootFolder") != 0 || d.CallCount("FindRootFolders") != 0 {
+			t.Errorf("create=%d find=%d", d.CallCount("CreateRootFolder"), d.CallCount("FindRootFolders"))
 		}
 	})
 
@@ -290,7 +283,7 @@ func TestResolverRace(t *testing.T) {
 		// Arrange
 		r, d, _ := newTestResolver(t)
 		root, _ := r.Root(context.Background())
-		d.addFolder(root.ID, "a")
+		d.AddFolder(root.ID, "a")
 		var wg sync.WaitGroup
 		errs := make(chan error, 8)
 
@@ -299,7 +292,7 @@ func TestResolverRace(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := r.Resolve(context.Background(), mustPath(t, "/a"))
+				_, err := r.Resolve(context.Background(), usecasetest.MustPath(t, "/a"))
 				_ = r.Warnings()
 				errs <- err
 			}()
@@ -319,18 +312,18 @@ func TestResolverRace(t *testing.T) {
 func TestRemote(t *testing.T) {
 	t.Run("Connect は Drive と Resolver を返す", func(t *testing.T) {
 		// Arrange
-		d := newFakeDrive(t)
-		remote := Remote{
-			Open:   func(context.Context) (Drive, error) { return d, nil },
-			State:  &fakeState{},
-			Locker: &fakeLocker{},
+		d := usecasetest.NewDrive(t)
+		remote := usecase.Remote{
+			Open:   func(context.Context) (usecase.Drive, error) { return d, nil },
+			State:  &usecasetest.State{},
+			Locker: &usecasetest.Locker{},
 		}
 
 		// Act
 		s, err := remote.Connect(context.Background())
 
 		// Assert
-		if err != nil || s.Drive != Drive(d) || s.Resolver == nil {
+		if err != nil || s.Drive != usecase.Drive(d) || s.Resolver == nil {
 			t.Errorf("s=%+v err=%v", s, err)
 		}
 	})

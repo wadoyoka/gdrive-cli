@@ -9,18 +9,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wadoyoka/gdrive-cli/internal/repository"
-	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/config"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/setup"
 )
 
 func newDeps(t *testing.T) (Deps, *bytes.Buffer, *bytes.Buffer, string) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "cfg")
-	cd := repository.NewConfigDir(dir)
-	pf := repository.NewPolicyFile(dir)
+	cd := config.NewDir(dir)
+	pf := config.NewPolicyFile(dir)
 	var out, errb bytes.Buffer
 	d := Deps{
-		Init:   usecase.Init{Dir: cd, Policy: pf},
+		Init:   setup.Init{Dir: cd, Policy: pf},
 		Policy: pf,
 		Stdin:  strings.NewReader(""),
 		Stdout: &out,

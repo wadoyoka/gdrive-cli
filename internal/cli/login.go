@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
 )
 
 func newLoginCommand(d Deps, asJSON *bool) *cobra.Command {
@@ -16,7 +16,7 @@ func newLoginCommand(d Deps, asJSON *bool) *cobra.Command {
 		Short: "Google にログインする",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			res, err := d.Login.Run(cmd.Context(), usecase.LoginInput{
+			res, err := d.Login.Run(cmd.Context(), account.LoginInput{
 				ClientSecretPath: secretPath,
 				NoBrowser:        noBrowser,
 				Prompt:           d.Stderr,

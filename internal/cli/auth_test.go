@@ -11,6 +11,7 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
 )
 
 type stubAuth struct {
@@ -57,9 +58,9 @@ func withStubAuth(d Deps, a *stubAuth) Deps {
 		State:  stubState{},
 		Locker: stubLocker{},
 	}
-	d.Login = usecase.Login{Auth: a, Remote: r}
-	d.Logout = usecase.Logout{Auth: a}
-	d.Status = usecase.Status{Dir: d.Init.Dir, Auth: a, Remote: r}
+	d.Login = account.Login{Auth: a, Remote: r}
+	d.Logout = account.Logout{Auth: a}
+	d.Status = account.Status{Dir: d.Init.Dir, Auth: a, Remote: r}
 	return d
 }
 

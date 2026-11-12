@@ -20,7 +20,7 @@ func newProgressPrinter(w io.Writer) *progressPrinter {
 	return &progressPrinter{w: w, percent: map[string]int{}}
 }
 
-// Report は、path の進み具合を表示する。usecase.ProgressFunc として渡す。
+// Report は、path の進み具合を表示する。transfer.ProgressFunc として渡す。
 func (p *progressPrinter) Report(path string, done, total int64) {
 	pct := 100
 	if total > 0 {

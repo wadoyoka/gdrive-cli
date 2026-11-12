@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
-	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/setup"
 )
 
 func newSetupCommand(d Deps, asJSON *bool) *cobra.Command {
@@ -30,7 +30,7 @@ func newSetupCommand(d Deps, asJSON *bool) *cobra.Command {
 			}
 			// 標準入力の読み手は1つだけ。質問役もログインの貼り付けも、これから読む。
 			br := bufio.NewReader(d.Stdin)
-			res, err := d.Setup.Run(cmd.Context(), usecase.SetupInput{
+			res, err := d.Setup.Run(cmd.Context(), setup.Input{
 				ProjectID:        projectID,
 				ClientSecretPath: secretPath,
 				NoBrowser:        noBrowser,
@@ -73,7 +73,7 @@ func (p termPrompter) readLine() (string, error) {
 		ctx = context.Background()
 	}
 	if ctx.Err() != nil {
-		return "", usecase.SetupAborted()
+		return "", setup.Aborted()
 	}
 	ch := make(chan lineResult, 1)
 	go func() {
@@ -83,7 +83,7 @@ func (p termPrompter) readLine() (string, error) {
 	var r lineResult
 	select {
 	case <-ctx.Done():
-		return "", usecase.SetupAborted()
+		return "", setup.Aborted()
 	case r = <-ch:
 	}
 	if r.err != nil && (!errors.Is(r.err, io.EOF) || r.line == "") {

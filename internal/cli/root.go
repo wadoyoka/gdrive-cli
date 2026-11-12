@@ -10,21 +10,25 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/setup"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/transfer"
 )
 
 // Deps は、コマンドが使うものをまとめたもの。
 type Deps struct {
-	Init     usecase.Init
-	Login    usecase.Login
-	Logout   usecase.Logout
-	Status   usecase.Status
-	Mkdir    usecase.Mkdir
-	List     usecase.List
-	Upload   usecase.Upload
-	Download usecase.Download
-	Move     usecase.Move
+	Init     setup.Init
+	Login    account.Login
+	Logout   account.Logout
+	Status   account.Status
+	Mkdir    remotefs.Mkdir
+	List     remotefs.List
+	Upload   transfer.Upload
+	Download transfer.Download
+	Move     remotefs.Move
 	Policy   usecase.PolicyStore
-	Setup    usecase.Setup
+	Setup    setup.Setup
 	Stdin    io.Reader
 	Stdout   io.Writer
 	Stderr   io.Writer

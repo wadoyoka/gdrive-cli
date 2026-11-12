@@ -8,6 +8,7 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
 )
 
 // emptyDrive は、ルートだけがあって中身が空の偽の Drive。
@@ -31,9 +32,9 @@ func withRemote(d Deps) Deps {
 		State:  stubState{},
 		Locker: stubLocker{},
 	}
-	d.Mkdir = usecase.Mkdir{Remote: r}
-	d.List = usecase.List{Remote: r}
-	d.Move = usecase.Move{Remote: r}
+	d.Mkdir = remotefs.Mkdir{Remote: r}
+	d.List = remotefs.List{Remote: r}
+	d.Move = remotefs.Move{Remote: r}
 	return d
 }
 

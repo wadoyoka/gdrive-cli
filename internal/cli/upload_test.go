@@ -13,7 +13,9 @@ import (
 	"testing"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
+	"github.com/wadoyoka/gdrive-cli/internal/domain/plan"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
+	"github.com/wadoyoka/gdrive-cli/internal/usecase/transfer"
 )
 
 // uploadDrive は、ルートだけがある状態から upload を受け付ける偽の Drive。
@@ -61,7 +63,7 @@ func withUpload(d Deps, drive *uploadDrive) Deps {
 		State:  stubState{},
 		Locker: stubLocker{},
 	}
-	d.Upload = usecase.Upload{Remote: r, Concurrency: 1}
+	d.Upload = transfer.Upload{Remote: r, Concurrency: 1}
 	return d
 }
 
@@ -102,11 +104,11 @@ func TestUploadCommand(t *testing.T) {
 		code := Execute(context.Background(), d, []string{"--json", "upload", a, "/"})
 
 		// Assert
-		var got usecase.TransferResult
+		var got transfer.Result
 		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 			t.Fatalf("json: %v: %q", err, out.String())
 		}
-		want := usecase.TransferItem{LocalPath: a, RemotePath: "/a.mp4", ID: "u1", Type: domain.TypeFile, Size: 5, WebViewLink: "https://example.com/u1", Action: domain.ActionCreate}
+		want := transfer.Item{LocalPath: a, RemotePath: "/a.mp4", ID: "u1", Type: domain.TypeFile, Size: 5, WebViewLink: "https://example.com/u1", Action: plan.ActionCreate}
 		if code != 0 || len(got.Items) != 1 || got.Items[0] != want {
 			t.Errorf("code=%d got=%+v", code, got)
 		}

@@ -1,4 +1,5 @@
-// Package usecase は、各コマンドの手順と、それが頼る外部の約束（ポート）を持つ。
+// Package usecase は、各コマンドの手順が頼る外部の約束（ポート）と、どの手順も使うドライブへの接続とパスの解決を持つ。
+// 手順そのものは、サブパッケージ（account・remotefs・setup・transfer）に置く。
 package usecase
 
 import (
@@ -6,6 +7,7 @@ import (
 	"io"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
+	"github.com/wadoyoka/gdrive-cli/internal/domain/policy"
 )
 
 // ConfigDir は、設定ディレクトリ。
@@ -20,7 +22,7 @@ type PolicyStore interface {
 	Path() string
 	// CreateIfAbsent は、なければ既定の内容で作る。作ったときだけ true を返す。
 	CreateIfAbsent() (created bool, err error)
-	Load() (domain.Policy, error)
+	Load() (policy.Policy, error)
 }
 
 // LoginOptions は、ログインの入出力。
