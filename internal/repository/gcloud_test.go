@@ -256,3 +256,29 @@ func TestGCloud(t *testing.T) {
 func asDomainError(err error, target **domain.Error) bool {
 	return errors.As(err, target)
 }
+
+func TestGCloudキャンセル(t *testing.T) {
+	t.Run("孫プロセスが出力を握ったままでもキャンセルで返る", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		script := "#!/bin/sh\n/bin/sleep 20 &\n/bin/sleep 20\n"
+		bin := filepath.Join(dir, "gcloud")
+		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil { //nolint:gosec // テスト用の実行ファイル
+			t.Fatal(err)
+		}
+		g := &GCloud{Bin: bin}
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		// Act
+		start := time.Now()
+		_, err := g.ActiveAccount(ctx)
+		elapsed := time.Since(start)
+		// Assert
+		if err == nil {
+			t.Error("エラーになるはず")
+		}
+		if elapsed > 10*time.Second {
+			t.Errorf("戻るまで %v かかった", elapsed)
+		}
+	})
+}

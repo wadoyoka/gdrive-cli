@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 )
+
+// gcloudWaitDelay は、キャンセル後に孫プロセスが出力を握っていても待つ上限。
+const gcloudWaitDelay = 3 * time.Second
 
 var _ usecase.CloudSetup = (*GCloud)(nil)
 
@@ -68,6 +72,7 @@ func (g *GCloud) run(ctx context.Context, args ...string) (stdout, stderr string
 	}
 	full := append(append([]string{}, args...), "--quiet")
 	cmd := exec.CommandContext(ctx, g.bin(), full...) //nolint:gosec // 引数は allowedGCloud で確かめた固定の形だけ
+	cmd.WaitDelay = gcloudWaitDelay
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
