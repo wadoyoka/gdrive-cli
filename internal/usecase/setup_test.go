@@ -25,7 +25,10 @@ type fakeCloud struct {
 	enableErrMsg string
 }
 
-func (c *fakeCloud) Installed() bool { return !c.missing }
+func (c *fakeCloud) Installed() bool {
+	c.calls = append(c.calls, "installed")
+	return !c.missing
+}
 
 func (c *fakeCloud) ActiveAccount(context.Context) (string, error) {
 	c.calls = append(c.calls, "account")
@@ -171,7 +174,7 @@ func TestSetup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantCloud := []string{"account", "describe:" + defaultSetupID, "create:" + defaultSetupID, "enable:" + defaultSetupID}
+		wantCloud := []string{"installed", "account", "describe:" + defaultSetupID, "create:" + defaultSetupID, "enable:" + defaultSetupID}
 		if !slices.Equal(f.cloud.calls, wantCloud) {
 			t.Errorf("cloud = %v", f.cloud.calls)
 		}
@@ -329,7 +332,7 @@ func TestSetup(t *testing.T) {
 		if domain.KindOf(err) != domain.KindUsage {
 			t.Errorf("err = %v", err)
 		}
-		if slices.ContainsFunc(f.cloud.calls, func(c string) bool { return strings.HasPrefix(c, "describe") || strings.HasPrefix(c, "create") }) {
+		if len(f.cloud.calls) != 0 {
 			t.Errorf("cloud = %v", f.cloud.calls)
 		}
 	})
@@ -346,7 +349,7 @@ func TestSetup(t *testing.T) {
 		if domain.KindOf(err) != domain.KindSetup || !strings.Contains(err.Error(), "https://cloud.google.com/sdk/docs/install") {
 			t.Errorf("err = %v", err)
 		}
-		if len(f.cloud.calls) != 0 {
+		if !slices.Equal(f.cloud.calls, []string{"installed"}) {
 			t.Errorf("cloud = %v", f.cloud.calls)
 		}
 	})
@@ -363,7 +366,7 @@ func TestSetup(t *testing.T) {
 		if domain.KindOf(err) != domain.KindSetup || !strings.Contains(err.Error(), "gcloud auth login") {
 			t.Errorf("err = %v", err)
 		}
-		if !slices.Equal(f.cloud.calls, []string{"account"}) {
+		if !slices.Equal(f.cloud.calls, []string{"installed", "account"}) {
 			t.Errorf("cloud = %v", f.cloud.calls)
 		}
 	})

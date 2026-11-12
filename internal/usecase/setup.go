@@ -85,6 +85,13 @@ func (u Setup) Run(ctx context.Context, in SetupInput) (SetupResult, error) {
 		return SetupResult{}, err
 	}
 
+	// --project の形は、gcloud を呼ぶ前に確かめる（引数の誤りは終了コード 2）。
+	if in.ProjectID != "" {
+		if err := domain.ValidateProjectID(in.ProjectID); err != nil {
+			return SetupResult{}, err
+		}
+	}
+
 	// 4. gcloud
 	if !u.Cloud.Installed() {
 		return SetupResult{}, domain.Errorf(domain.KindSetup, "gcloud が見つかりません。Google Cloud CLI を入れてから、やり直してください: https://cloud.google.com/sdk/docs/install")
