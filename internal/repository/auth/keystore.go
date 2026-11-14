@@ -19,14 +19,25 @@ const keyLength = 32
 // keyFileName は、GDRIVE_CLI_KEYRING=file のときに鍵を置く、設定ディレクトリの中のファイルの名前。
 const keyFileName = "key"
 
+// LoadedKey は、KeyStore.Load が見つけた鍵。
+type LoadedKey struct {
+	Key []byte
+	// Unverified は、gdrive-cli が作った新しい形の項目から読んだと言えない鍵（古い形の項目、移し替えの途中の一時的な項目）。
+	// 呼び出し側は、今のファイルを復号できたときだけ使い、Adopt で新しい形に移す。
+	Unverified bool
+}
+
 // KeyStore は、暗号化の鍵の置き場。
 type KeyStore interface {
 	// Kind は "os" か "file"。不正な GDRIVE_CLI_KEYRING のときはその値。
 	Kind() string
-	// Load は、確かにないときだけ (nil, false, nil) を返す。
+	// Load は、確かにないときだけ (LoadedKey{}, false, nil) を返す。
 	// 使えない・読めない・形が違うときは KindSetup、不正な GDRIVE_CLI_KEYRING は KindUsage。
-	Load() (key []byte, found bool, err error)
+	Load() (LoadedKey, bool, error)
+	// Save は鍵を置く。同じ名前の項目や key があれば置き換える。
 	Save(key []byte) error
+	// Adopt は、Load が Unverified で返した鍵を、新しい形の項目に移す。設定ディレクトリのロックの中で呼ぶ。
+	Adopt(key []byte) error
 }
 
 // keyringBackend は、OS のキーチェーンとのやりとり。テストでは偽物を使う。
@@ -81,8 +92,9 @@ func (s invalidKeyStore) err() error {
 	return domain.Errorf(domain.KindUsage, "GDRIVE_CLI_KEYRING の値が正しくありません（os か file を指定してください）: %s", s.mode)
 }
 
-func (s invalidKeyStore) Load() ([]byte, bool, error) { return nil, false, s.err() }
-func (s invalidKeyStore) Save([]byte) error           { return s.err() }
+func (s invalidKeyStore) Load() (LoadedKey, bool, error) { return LoadedKey{}, false, s.err() }
+func (s invalidKeyStore) Save([]byte) error              { return s.err() }
+func (s invalidKeyStore) Adopt([]byte) error             { return s.err() }
 
 type osKeyStore struct {
 	dir string
@@ -107,19 +119,19 @@ func osUnavailable(err error) error {
 	return domain.Errorf(domain.KindSetup, "キーチェーンが使えません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置きます（守りは弱くなります）").Wrap(err)
 }
 
-func (s *osKeyStore) Load() ([]byte, bool, error) {
+func (s *osKeyStore) Load() (LoadedKey, bool, error) {
 	v, err := s.b.Get(keyringService, s.account())
 	if errors.Is(err, errKeyringNotFound) {
-		return nil, false, nil
+		return LoadedKey{}, false, nil
 	}
 	if err != nil {
-		return nil, false, osUnavailable(err)
+		return LoadedKey{}, false, osUnavailable(err)
 	}
 	key, ok := decodeKey(v)
 	if !ok {
-		return nil, false, domain.Errorf(domain.KindSetup, "キーチェーンの鍵の形が正しくありません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置けます")
+		return LoadedKey{}, false, domain.Errorf(domain.KindSetup, "キーチェーンの鍵の形が正しくありません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置けます")
 	}
-	return key, true, nil
+	return LoadedKey{Key: key}, true, nil
 }
 
 func (s *osKeyStore) Save(key []byte) error {
@@ -128,6 +140,9 @@ func (s *osKeyStore) Save(key []byte) error {
 	}
 	return nil
 }
+
+// Adopt は何もしない。Load が Unverified を返さないため。
+func (s *osKeyStore) Adopt([]byte) error { return nil }
 
 type fileKeyStore struct{ dir string }
 
@@ -145,20 +160,23 @@ func (s *fileKeyStore) unreadable(err error) error {
 	return e
 }
 
-func (s *fileKeyStore) Load() ([]byte, bool, error) {
+func (s *fileKeyStore) Load() (LoadedKey, bool, error) {
 	data, err := os.ReadFile(s.path())
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return LoadedKey{}, false, nil
 	}
 	if err != nil {
-		return nil, false, s.unreadable(err)
+		return LoadedKey{}, false, s.unreadable(err)
 	}
 	key, ok := decodeKey(string(data))
 	if !ok {
-		return nil, false, s.unreadable(nil)
+		return LoadedKey{}, false, s.unreadable(nil)
 	}
-	return key, true, nil
+	return LoadedKey{Key: key}, true, nil
 }
+
+// Adopt は何もしない。Load が Unverified を返さないため。
+func (s *fileKeyStore) Adopt([]byte) error { return nil }
 
 func (s *fileKeyStore) Save(key []byte) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {

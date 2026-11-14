@@ -48,27 +48,30 @@ func (b *lockedBuffer) String() string {
 
 // memKeys は、メモリ上の偽の KeyStore。本物のキーチェーンには触れない。
 type memKeys struct {
-	mu      sync.Mutex
-	kind    string
-	key     []byte
-	loadErr error
-	loads   int
-	saves   int
+	mu         sync.Mutex
+	kind       string
+	key        []byte
+	unverified bool // Load が Unverified で返す（古い形の項目から読んだ鍵の代わり）
+	loadErr    error
+	adoptErr   error
+	loads      int
+	saves      int
+	adopts     int
 }
 
 func (m *memKeys) Kind() string { return m.kind }
 
-func (m *memKeys) Load() ([]byte, bool, error) {
+func (m *memKeys) Load() (LoadedKey, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.loads++
 	if m.loadErr != nil {
-		return nil, false, m.loadErr
+		return LoadedKey{}, false, m.loadErr
 	}
 	if m.key == nil {
-		return nil, false, nil
+		return LoadedKey{}, false, nil
 	}
-	return append([]byte(nil), m.key...), true, nil
+	return LoadedKey{Key: append([]byte(nil), m.key...), Unverified: m.unverified}, true, nil
 }
 
 func (m *memKeys) Save(key []byte) error {
@@ -76,6 +79,18 @@ func (m *memKeys) Save(key []byte) error {
 	defer m.mu.Unlock()
 	m.saves++
 	m.key = append([]byte(nil), key...)
+	m.unverified = false // 置いた鍵は新しい形の項目になる
+	return nil
+}
+
+func (m *memKeys) Adopt([]byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.adoptErr != nil {
+		return m.adoptErr
+	}
+	m.adopts++
+	m.unverified = false
 	return nil
 }
 
@@ -973,11 +988,11 @@ func TestAuthKeyCreation(t *testing.T) {
 		}
 	})
 
-	t.Run("鍵が既にあれば取り込みでも作り直さない", func(t *testing.T) {
+	t.Run("鍵があり、ファイルを復号できれば作り直さない", func(t *testing.T) {
 		// Arrange
 		keys := newMemKeys()
 		a := &Auth{Dir: t.TempDir(), Keys: keys}
-		testKey(t, a)
+		writeClientSecret(t, a)
 
 		// Act
 		err := a.ImportClientSecret(writeSrcSecret(t))
@@ -985,6 +1000,55 @@ func TestAuthKeyCreation(t *testing.T) {
 		// Assert
 		if err != nil || keys.savedCount() != 0 {
 			t.Errorf("err = %v, saves = %d", err, keys.savedCount())
+		}
+	})
+
+	t.Run("鍵があってもファイルがなければ作り直す", func(t *testing.T) {
+		// Arrange
+		keys := newMemKeys()
+		a := &Auth{Dir: t.TempDir(), Keys: keys}
+		old := testKey(t, a)
+
+		// Act
+		err := a.ImportClientSecret(writeSrcSecret(t))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keys.savedCount() != 1 {
+			t.Errorf("saves = %d", keys.savedCount())
+		}
+		if bytes.Equal(keys.key, old) {
+			t.Error("元の鍵のまま")
+		}
+	})
+
+	t.Run("鍵があってもファイルを復号できなければ作り直し、token.enc を消す", func(t *testing.T) {
+		// Arrange
+		keys := newMemKeys()
+		a := &Auth{Dir: t.TempDir(), Keys: keys}
+		writeClientSecret(t, a)
+		writeToken(t, a, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+		other, err := newKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys.key = other // ファイルは別の鍵で封をしてある
+
+		// Act
+		err = a.ImportClientSecret(writeSrcSecret(t))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keys.savedCount() != 1 || bytes.Equal(keys.key, other) {
+			t.Errorf("saves = %d, 鍵を置き換えたか = %v", keys.savedCount(), !bytes.Equal(keys.key, other))
+		}
+		if a.HasToken() {
+			t.Error("token.enc が残っている")
+		}
+		if _, cfgErr := a.config(); cfgErr != nil {
+			t.Errorf("新しい client_secret.enc を新しい鍵で読めない: %v", cfgErr)
 		}
 	})
 
@@ -1059,6 +1123,210 @@ func TestAuthKeyCreation(t *testing.T) {
 		// Assert
 		if err == nil || keys.savedCount() != 0 {
 			t.Errorf("err = %v, saves = %d", err, keys.savedCount())
+		}
+	})
+
+	t.Run("古い形の鍵でファイルを復号できれば、取り込みで移し、作り直さない。ロックは1回", func(t *testing.T) {
+		// Arrange
+		keys := newMemKeys()
+		var locked, unlocked int
+		a := &Auth{Dir: t.TempDir(), Keys: keys, Lock: func(context.Context) (func(), error) {
+			locked++
+			return func() { unlocked++ }, nil
+		}}
+		writeClientSecret(t, a)
+		keys.unverified = true
+
+		// Act
+		err := a.ImportClientSecret(writeSrcSecret(t))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keys.adopts != 1 || keys.savedCount() != 0 {
+			t.Errorf("adopts = %d, saves = %d", keys.adopts, keys.savedCount())
+		}
+		if locked != 1 || unlocked != 1 {
+			t.Errorf("locked = %d, unlocked = %d", locked, unlocked)
+		}
+	})
+
+	t.Run("GDRIVE_CLI_KEYRING=file で key が合わなければ、取り込みで key を置き換える", func(t *testing.T) {
+		// Arrange
+		dir := t.TempDir()
+		a := &Auth{Dir: dir, Keys: newFileKeyStore(dir)}
+		stale, err := newKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.Keys.Save(stale); err != nil {
+			t.Fatal(err)
+		}
+		sealer, err := newKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sealed, err := sealSecret(sealer, secretKindClientSecret, []byte(testClientSecret))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "client_secret.enc"), sealed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(filepath.Join(dir, "key")) //nolint:gosec // テストの一時ファイル
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		err = a.ImportClientSecret(writeSrcSecret(t))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(filepath.Join(dir, "key")) //nolint:gosec // テストの一時ファイル
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(before, after) {
+			t.Error("key が置き換わっていない")
+		}
+		if _, cfgErr := a.config(); cfgErr != nil {
+			t.Errorf("新しい client_secret.enc を新しい key で読めない: %v", cfgErr)
+		}
+	})
+}
+
+func TestAuthKeyAdoption(t *testing.T) {
+	// oldKeyAuth は、古い形の項目から読んだ鍵（Unverified）で、client_secret.enc と token.enc を復号できる Auth を返す。
+	oldKeyAuth := func(t *testing.T, lock func(context.Context) (func(), error)) (*Auth, *memKeys) {
+		t.Helper()
+		keys := newMemKeys()
+		a := &Auth{Dir: t.TempDir(), Keys: keys, Lock: lock}
+		writeClientSecret(t, a)
+		writeToken(t, a, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+		keys.unverified = true
+		return a, keys
+	}
+
+	t.Run("古い形の鍵でファイルを復号できれば、読むときに移し替える", func(t *testing.T) {
+		// Arrange
+		var locked, unlocked int
+		a, keys := oldKeyAuth(t, func(context.Context) (func(), error) {
+			locked++
+			return func() { unlocked++ }, nil
+		})
+
+		// Act
+		_, err := a.TokenSource(context.Background())
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keys.adopts != 1 {
+			t.Errorf("adopts = %d", keys.adopts)
+		}
+		if locked != 1 || unlocked != 1 {
+			t.Errorf("locked = %d, unlocked = %d", locked, unlocked)
+		}
+	})
+
+	t.Run("token.enc だけでも、復号できれば移し替える", func(t *testing.T) {
+		// Arrange
+		keys := newMemKeys()
+		a := &Auth{Dir: t.TempDir(), Keys: keys}
+		writeToken(t, a, &oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
+		keys.unverified = true
+
+		// Act
+		key, found, err := a.loadKey()
+		// Assert
+		if err != nil || !found || key == nil {
+			t.Fatalf("found = %v, err = %v", found, err)
+		}
+		if keys.adopts != 1 {
+			t.Errorf("adopts = %d", keys.adopts)
+		}
+	})
+
+	t.Run("古い形の鍵でファイルを復号できなければ移さず、合わない文言", func(t *testing.T) {
+		// Arrange
+		a, keys := oldKeyAuth(t, nil)
+		other, err := newKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys.key = other // ファイルは別の鍵で封をしてある
+
+		// Act
+		_, tsErr := a.TokenSource(context.Background())
+		insp, inspErr := a.Inspect()
+
+		// Assert
+		if domain.KindOf(tsErr) != domain.KindSetup || !strings.Contains(tsErr.Error(), "今の鍵で読めません") {
+			t.Fatalf("kind = %v, err = %v", domain.KindOf(tsErr), tsErr)
+		}
+		if keys.adopts != 0 || a.key != nil {
+			t.Errorf("adopts = %d, メモリに持ったか = %v", keys.adopts, a.key != nil)
+		}
+		if inspErr != nil || insp.Problem != msgMismatch {
+			t.Errorf("Inspect = %+v, err = %v", insp, inspErr)
+		}
+	})
+
+	t.Run("移し替えに失敗したら KindSetup で止まり、その鍵を使わない", func(t *testing.T) {
+		// Arrange
+		a, keys := oldKeyAuth(t, nil)
+		keys.adoptErr = domain.Errorf(domain.KindSetup, "キーチェーンが使えません")
+
+		// Act
+		_, err := a.TokenSource(context.Background())
+
+		// Assert
+		if domain.KindOf(err) != domain.KindSetup {
+			t.Fatalf("kind = %v, err = %v", domain.KindOf(err), err)
+		}
+		if a.key != nil {
+			t.Error("移せなかった鍵をメモリに持っている")
+		}
+	})
+
+	t.Run("移し替えのロックを取れなければ止まり、移さない", func(t *testing.T) {
+		// Arrange
+		a, keys := oldKeyAuth(t, func(context.Context) (func(), error) {
+			return nil, errors.New("取れない")
+		})
+
+		// Act
+		_, err := a.TokenSource(context.Background())
+
+		// Assert
+		if err == nil {
+			t.Fatal("エラーにならない")
+		}
+		if keys.adopts != 0 {
+			t.Errorf("adopts = %d", keys.adopts)
+		}
+	})
+
+	t.Run("ロックを待つ間にほかの gdrive-cli が移し終えていれば、Adopt を呼ばずにその鍵を使う", func(t *testing.T) {
+		// Arrange
+		var keys *memKeys
+		a, keys := oldKeyAuth(t, func(context.Context) (func(), error) {
+			keys.mu.Lock()
+			keys.unverified = false // ほかの gdrive-cli が移し終えた
+			keys.mu.Unlock()
+			return func() {}, nil
+		})
+
+		// Act
+		_, err := a.TokenSource(context.Background())
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keys.adopts != 0 {
+			t.Errorf("adopts = %d", keys.adopts)
 		}
 	})
 }

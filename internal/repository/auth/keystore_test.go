@@ -45,10 +45,10 @@ func TestKeyStore(t *testing.T) {
 		// Arrange
 		s := newOSKeyStore(t.TempDir(), newFakeKeyring())
 		// Act
-		key, found, err := s.Load()
+		got, found, err := s.Load()
 		// Assert
-		if err != nil || found || key != nil {
-			t.Fatalf("key=%v found=%v err=%v", key, found, err)
+		if err != nil || found || got.Key != nil {
+			t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
 		}
 	})
 
@@ -89,7 +89,7 @@ func TestKeyStore(t *testing.T) {
 		saveErr := s.Save(k)
 		got, found, err := s.Load()
 		// Assert
-		if saveErr != nil || err != nil || !found || string(got) != string(k) {
+		if saveErr != nil || err != nil || !found || string(got.Key) != string(k) {
 			t.Fatalf("save=%v err=%v found=%v", saveErr, err, found)
 		}
 	})
@@ -115,10 +115,10 @@ func TestKeyStore(t *testing.T) {
 		// Arrange
 		s := newFileKeyStore(t.TempDir())
 		// Act
-		key, found, err := s.Load()
+		got, found, err := s.Load()
 		// Assert
-		if err != nil || found || key != nil {
-			t.Fatalf("key=%v found=%v err=%v", key, found, err)
+		if err != nil || found || got.Key != nil {
+			t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
 		}
 	})
 
@@ -132,7 +132,7 @@ func TestKeyStore(t *testing.T) {
 		got, found, err := s.Load()
 		info, statErr := os.Stat(filepath.Join(dir, "key"))
 		// Assert
-		if saveErr != nil || err != nil || statErr != nil || !found || string(got) != string(k) {
+		if saveErr != nil || err != nil || statErr != nil || !found || string(got.Key) != string(k) {
 			t.Fatalf("save=%v err=%v stat=%v found=%v", saveErr, err, statErr, found)
 		}
 		if info.Mode().Perm() != 0o600 {

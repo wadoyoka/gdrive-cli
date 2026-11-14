@@ -52,7 +52,7 @@ const (
 type Auth struct {
 	Dir  string
 	Keys KeyStore
-	Lock func(ctx context.Context) (unlock func(), err error) // 鍵を作るときの排他。nil ならロックしない
+	Lock func(ctx context.Context) (unlock func(), err error) // 鍵を作る・移すときの排他。nil ならロックしない
 
 	mu  sync.Mutex
 	key []byte // Keys.Load で見つけた鍵。mu で守る
@@ -95,43 +95,146 @@ func (a *Auth) withHTTPClient(ctx context.Context) context.Context {
 }
 
 // loadKey は、鍵を Keys.Load で探す。見つけたらメモリに持つ。鍵を作ることはしない。
+// Unverified の鍵は、adoptKey で今のファイルを復号できるかを確かめてから使う。
 func (a *Auth) loadKey() (key []byte, found bool, err error) {
+	loaded, found, err := a.cachedOrLoadKey()
+	if err != nil || !found {
+		return nil, false, err
+	}
+	if loaded.Unverified {
+		// mu は放してある。adoptKey は Lock → mu の順で取る（ensureKey と同じ順。逆にするとプロセスの中で止まりうる）。
+		return a.adoptKey(context.Background())
+	}
+	return loaded.Key, true, nil
+}
+
+// cachedOrLoadKey は、mu の中で、メモリの鍵か Keys.Load の結果を返す。メモリに持つのは Unverified でない鍵だけ。
+func (a *Auth) cachedOrLoadKey() (LoadedKey, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.key != nil {
-		return a.key, true, nil
+		return LoadedKey{Key: a.key}, true, nil
 	}
-	key, found, err = a.Keys.Load()
+	loaded, found, err := a.Keys.Load()
+	if err != nil || !found {
+		return LoadedKey{}, false, err
+	}
+	if !loaded.Unverified {
+		a.key = loaded.Key
+	}
+	return loaded, true, nil
+}
+
+// adoptKey は、Lock の中で鍵を読み直す。Unverified の鍵は、今のファイルを復号できるときだけ Adopt で新しい形に移して、メモリに持つ。
+// ファイルがない、または復号できないときは、移さず、メモリにも持たずにその鍵を返す（読む側は msgMismatch で止まる）。
+func (a *Auth) adoptKey(ctx context.Context) (key []byte, found bool, err error) {
+	unlock, err := a.lockKeys(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	if !found {
-		return nil, false, nil
-	}
-	a.key = key
-	return key, true, nil
-}
-
-// ensureKey は、Lock の中で鍵を探し、確かにないときだけ作って保存する。新しく作ったら created が true。
-func (a *Auth) ensureKey(ctx context.Context) (key []byte, created bool, err error) {
-	ctx, cancel := context.WithTimeout(ctx, keyLockTimeout)
-	defer cancel()
-	if a.Lock != nil {
-		unlock, lockErr := a.Lock(ctx)
-		if lockErr != nil {
-			return nil, false, domain.Errorf(domain.KindUnexpected, "鍵を作る順番を待てません").Wrap(lockErr)
-		}
-		defer unlock()
-	}
+	defer unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	key, found, err := a.Keys.Load()
+	if a.key != nil { // ロックを待つ間に、同じプロセスのほかの呼び出しが確かめ終えた
+		return a.key, true, nil
+	}
+	loaded, found, err := a.Keys.Load()
+	if err != nil || !found {
+		return nil, false, err
+	}
+	if loaded.Unverified {
+		fit, err := a.checkKey(loaded.Key)
+		if err != nil {
+			return nil, false, err
+		}
+		if fit != keyFits {
+			return loaded.Key, true, nil
+		}
+		if err := a.Keys.Adopt(loaded.Key); err != nil {
+			return nil, false, err
+		}
+	}
+	// Unverified でなければ、ロックを待つ間にほかの gdrive-cli が移し終えている。Adopt は呼ばない。
+	a.key = loaded.Key
+	return loaded.Key, true, nil
+}
+
+// lockKeys は、鍵を作る・移すための Lock を、keyLockTimeout まで待って取る。Lock が nil なら何もしない。
+func (a *Auth) lockKeys(ctx context.Context) (unlock func(), err error) {
+	if a.Lock == nil {
+		return func() {}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, keyLockTimeout)
+	defer cancel()
+	unlock, err = a.Lock(ctx)
+	if err != nil {
+		return nil, domain.Errorf(domain.KindUnexpected, "鍵を作る順番を待てません").Wrap(err)
+	}
+	return unlock, nil
+}
+
+// keyFit は、鍵で今のファイルを復号できるか。
+type keyFit int
+
+const (
+	keyNoFiles  keyFit = iota // client_secret.enc も token.enc もない
+	keyFits                   // あるものがすべて、この鍵で復号できる
+	keyMismatch               // 復号できないものがある
+)
+
+// checkKey は、client_secret.enc と token.enc のうちあるものを、key で復号できるかを調べる。
+// 読めない（権限など）ときは KindUnexpected。
+func (a *Auth) checkKey(key []byte) (keyFit, error) {
+	fit := keyNoFiles
+	for _, f := range []struct{ name, kind string }{
+		{clientSecretName, secretKindClientSecret},
+		{tokenName, secretKindToken},
+	} {
+		sealed, err := os.ReadFile(filepath.Join(a.Dir, f.name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return keyNoFiles, domain.Errorf(domain.KindUnexpected, "%s を読めません", f.name).Wrap(err)
+		}
+		if _, err := openSecret(key, f.kind, sealed); err != nil {
+			return keyMismatch, nil
+		}
+		fit = keyFits
+	}
+	return fit, nil
+}
+
+// ensureKey は、Lock の中で鍵を探し、今のファイルを復号できる鍵ならそれを使う（Unverified なら Adopt で移す）。
+// 見つからない、またはファイルがない・復号できない鍵なら、新しい鍵を作って置き換える。新しく作ったら created が true。
+// Lock はもう持っているので、adoptKey は呼ばない（Lock は入れ子にできない）。
+func (a *Auth) ensureKey(ctx context.Context) (key []byte, created bool, err error) {
+	unlock, err := a.lockKeys(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	loaded, found, err := a.Keys.Load()
 	if err != nil {
 		return nil, false, err
 	}
 	if found {
-		a.key = key
-		return key, false, nil
+		fit, err := a.checkKey(loaded.Key)
+		if err != nil {
+			return nil, false, err
+		}
+		if fit == keyFits {
+			if loaded.Unverified {
+				if err := a.Keys.Adopt(loaded.Key); err != nil {
+					return nil, false, err
+				}
+			}
+			a.key = loaded.Key
+			return loaded.Key, false, nil
+		}
+		// ファイルがない、または復号できない鍵は、gdrive-cli が作った鍵だと言えないので使わない（設計書 5.7）。
 	}
 	key, err = newKey()
 	if err != nil {
