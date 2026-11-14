@@ -75,12 +75,38 @@ func (goKeyringBackend) Set(service, user, secret string) error {
 	return keyring.Set(service, user, secret)
 }
 
+func (goKeyringBackend) Delete(service, user string) error {
+	err := keyring.Delete(service, user)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return errKeyringNotFound
+	}
+	return err
+}
+
 func decodeKey(s string) ([]byte, bool) {
 	key, err := base64.StdEncoding.DecodeString(s)
 	if err != nil || len(key) != keyLength {
 		return nil, false
 	}
 	return key, true
+}
+
+// decodeKeychainKey は、キーチェーンの項目の値を鍵に直す。形が違えば KindSetup。
+func decodeKeychainKey(s string) ([]byte, error) {
+	key, ok := decodeKey(s)
+	if !ok {
+		return nil, domain.Errorf(domain.KindSetup, "キーチェーンの鍵の形が正しくありません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置けます")
+	}
+	return key, nil
+}
+
+// keyringAccount は、キーチェーンの項目のアカウント名（設定ディレクトリの絶対パス）。
+func keyringAccount(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return dir
+	}
+	return abs
 }
 
 // invalidKeyStore は、不正な GDRIVE_CLI_KEYRING の値を持つ。
@@ -107,35 +133,27 @@ func newOSKeyStore(dir string, b keyringBackend) KeyStore {
 
 func (s *osKeyStore) Kind() string { return "os" }
 
-func (s *osKeyStore) account() string {
-	abs, err := filepath.Abs(s.dir)
-	if err != nil {
-		return s.dir
-	}
-	return abs
-}
-
 func osUnavailable(err error) error {
 	return domain.Errorf(domain.KindSetup, "キーチェーンが使えません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置きます（守りは弱くなります）").Wrap(err)
 }
 
 func (s *osKeyStore) Load() (LoadedKey, bool, error) {
-	v, err := s.b.Get(keyringService, s.account())
+	v, err := s.b.Get(keyringService, keyringAccount(s.dir))
 	if errors.Is(err, errKeyringNotFound) {
 		return LoadedKey{}, false, nil
 	}
 	if err != nil {
 		return LoadedKey{}, false, osUnavailable(err)
 	}
-	key, ok := decodeKey(v)
-	if !ok {
-		return LoadedKey{}, false, domain.Errorf(domain.KindSetup, "キーチェーンの鍵の形が正しくありません。`GDRIVE_CLI_KEYRING=file` を指定すると、鍵を設定ディレクトリのファイルに置けます")
+	key, err := decodeKeychainKey(v)
+	if err != nil {
+		return LoadedKey{}, false, err
 	}
 	return LoadedKey{Key: key}, true, nil
 }
 
 func (s *osKeyStore) Save(key []byte) error {
-	if err := s.b.Set(keyringService, s.account(), base64.StdEncoding.EncodeToString(key)); err != nil {
+	if err := s.b.Set(keyringService, keyringAccount(s.dir), base64.StdEncoding.EncodeToString(key)); err != nil {
 		return osUnavailable(err)
 	}
 	return nil
