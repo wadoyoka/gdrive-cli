@@ -55,7 +55,7 @@ type Auth struct {
 	Lock func(ctx context.Context) (unlock func(), err error) // 鍵を作る・移すときの排他。nil ならロックしない
 
 	mu  sync.Mutex
-	key []byte // Keys.Load で見つけた鍵。mu で守る
+	key []byte // Keys.Load・LoadLocked で見つけた鍵。mu で守る
 
 	OpenBrowser  func(url string) error
 	Endpoint     oauth2.Endpoint // ゼロ値なら google.Endpoint
@@ -109,6 +109,7 @@ func (a *Auth) loadKey() (key []byte, found bool, err error) {
 }
 
 // cachedOrLoadKey は、mu の中で、メモリの鍵か Keys.Load の結果を返す。メモリに持つのは Unverified でない鍵だけ。
+// Keys.Load はロックの外で呼ぶので、Unverified の結果は鍵を持たない合図として扱い、その Key は使わない（adoptKey が読み直す）。
 func (a *Auth) cachedOrLoadKey() (LoadedKey, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -125,7 +126,7 @@ func (a *Auth) cachedOrLoadKey() (LoadedKey, bool, error) {
 	return loaded, true, nil
 }
 
-// adoptKey は、Lock の中で鍵を読み直す。Unverified の鍵は、今のファイルを復号できるときだけ Adopt で新しい形に移して、メモリに持つ。
+// adoptKey は、Lock の中で鍵を Keys.LoadLocked で読み直す。Unverified の鍵は、今のファイルを復号できるときだけ Adopt で新しい形に移して、メモリに持つ。
 // ファイルがない、または復号できないときは、移さず、メモリにも持たずにその鍵を返す（読む側は msgMismatch で止まる）。
 func (a *Auth) adoptKey(ctx context.Context) (key []byte, found bool, err error) {
 	unlock, err := a.lockKeys(ctx)
@@ -138,7 +139,7 @@ func (a *Auth) adoptKey(ctx context.Context) (key []byte, found bool, err error)
 	if a.key != nil { // ロックを待つ間に、同じプロセスのほかの呼び出しが確かめ終えた
 		return a.key, true, nil
 	}
-	loaded, found, err := a.Keys.Load()
+	loaded, found, err := a.Keys.LoadLocked()
 	if err != nil || !found {
 		return nil, false, err
 	}
@@ -205,7 +206,7 @@ func (a *Auth) checkKey(key []byte) (keyFit, error) {
 	return fit, nil
 }
 
-// ensureKey は、Lock の中で鍵を探し、今のファイルを復号できる鍵ならそれを使う（Unverified なら Adopt で移す）。
+// ensureKey は、Lock の中で鍵を Keys.LoadLocked で探し、今のファイルを復号できる鍵ならそれを使う（Unverified なら Adopt で移す）。
 // 見つからない、またはファイルがない・復号できない鍵なら、新しい鍵を作って置き換える。新しく作ったら created が true。
 // Lock はもう持っているので、adoptKey は呼ばない（Lock は入れ子にできない）。
 func (a *Auth) ensureKey(ctx context.Context) (key []byte, created bool, err error) {
@@ -216,7 +217,7 @@ func (a *Auth) ensureKey(ctx context.Context) (key []byte, created bool, err err
 	defer unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	loaded, found, err := a.Keys.Load()
+	loaded, found, err := a.Keys.LoadLocked()
 	if err != nil {
 		return nil, false, err
 	}

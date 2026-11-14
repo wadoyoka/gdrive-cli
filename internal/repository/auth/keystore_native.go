@@ -22,8 +22,8 @@ const (
 	msgMigrated       = "キーチェーンの鍵を新しい形に移しました"
 )
 
-// loadAttempts は、Load が項目を見直す回数の上限。見えた項目が読む前に消えたとき（ほかの gdrive-cli が移し替えている途中）に見直す。
-// 移し替えの途中で読むと、古い項目・一時的な項目・新しい項目の順に見えるので、3回あれば足りる。
+// loadAttempts は、Load が項目を見直す回数の上限。新しい形の項目が読む前に消えたとき（ほかの gdrive-cli が
+// Save で作り直している途中）に見直す。消えたあとは、ないか新しい項目が見える。続けて行き違うことはまれなので、少しだけ見直す。
 const loadAttempts = 3
 
 var (
@@ -60,8 +60,8 @@ var (
 )
 
 // nativeKeyStore は、gdrive-cli だけが読める新しい形の項目に鍵を置く KeyStore。
-// go-keyring で作った古い形の項目は、Load が Unverified で返し、Adopt で新しい形に移す（設計書 5.6）。
-// Load はロックの外で呼ばれるので、何も書き換えない。書き換えるのは Adopt と Save だけ（ロックの中）。
+// go-keyring で作った古い形の項目は、ロックの中の LoadLocked が Unverified で返し、Adopt で新しい形に移す（設計書 5.6）。
+// Load はロックの外で呼ばれるので、何も書き換えず、古い形の項目も読まない。書き換えるのは Adopt と Save だけ（ロックの中）。
 type nativeKeyStore struct {
 	dir    string
 	items  nativeItems
@@ -82,7 +82,7 @@ func (s *nativeKeyStore) accounts() (account, migrating string) {
 	return account, account + migratingSuffix
 }
 
-// keySource は、Load が鍵を読む項目。
+// keySource は、Load・LoadLocked が鍵を読む項目。
 type keySource struct {
 	account    string
 	legacy     bool // 目印がないので go-keyring で読む
@@ -113,43 +113,78 @@ func (s *nativeKeyStore) locate() (src keySource, ok bool, err error) {
 	return keySource{account: t, unverified: true}, true, nil
 }
 
-func (s *nativeKeyStore) read(src keySource) (string, error) {
+// readKey は、src の値を読んで鍵に直す。読む前に消えていたら errKeyringNotFound をそのまま返す。
+func (s *nativeKeyStore) readKey(src keySource) ([]byte, error) {
+	var (
+		v   string
+		err error
+	)
 	if src.legacy {
-		return s.legacy.Get(keyringService, src.account)
+		v, err = s.legacy.Get(keyringService, src.account)
+	} else {
+		v, err = s.items.Get(src.account)
 	}
-	return s.items.Get(src.account)
+	if errors.Is(err, errKeyringNotFound) {
+		return nil, err
+	}
+	if err != nil {
+		return nil, nativeUnavailable(err)
+	}
+	return decodeKeychainKey(v)
 }
 
+// Load は、ロックの外で呼ばれる。読むのは新しい形の本来の項目だけで、何も書き換えない。
+// 古い形の項目を go-keyring で読まない。Inspect で古い形と見てから /usr/bin/security が項目に届くまでの間に、
+// ほかの gdrive-cli が移し終えると、security が新しい形の項目に触れてダイアログが出る（「常に許可」を押すと、
+// security が ACL に入って穴が開く）。古い形の項目や一時的な項目は読まずに、鍵のない Unverified の合図を返す。
 func (s *nativeKeyStore) Load() (LoadedKey, bool, error) {
 	if err := s.guard(); err != nil {
 		return LoadedKey{}, false, err
 	}
-	var vanished error
 	for range loadAttempts {
 		src, ok, err := s.locate()
 		if err != nil || !ok {
 			return LoadedKey{}, false, err
 		}
-		v, err := s.read(src)
+		if src.unverified {
+			return LoadedKey{Unverified: true}, true, nil // ロックを取って LoadLocked で読み直す合図
+		}
+		key, err := s.readKey(src)
 		if errors.Is(err, errKeyringNotFound) {
-			vanished = err // 見えた項目が読む前に消えた。ほかの gdrive-cli が移し替えている途中なので、見直す
-			continue
+			continue // 読む前に消えた。ほかの gdrive-cli が Save で作り直している途中なので、見直す
 		}
-		if err != nil {
-			return LoadedKey{}, false, nativeUnavailable(err)
-		}
-		key, err := decodeKeychainKey(v)
 		if err != nil {
 			return LoadedKey{}, false, err
 		}
-		return LoadedKey{Key: key, Unverified: src.unverified}, true, nil
+		return LoadedKey{Key: key}, true, nil
 	}
 	// 見直しても項目が消え続けた。「ない」とは言い切れないので、使えないとする。
-	return LoadedKey{}, false, nativeUnavailable(vanished)
+	return LoadedKey{}, false, nativeUnavailable(errKeyringNotFound)
 }
 
-// Adopt は、Load が Unverified で返した鍵を新しい形の項目に移す。設定ディレクトリのロックの中で呼ぶ。
-// 途中で失敗したら、そこで止めてエラーを返す。どこで止まっても鍵はどれかの項目に残り、次の Load と Adopt が続きを行う。
+// LoadLocked は、設定ディレクトリのロックの中で呼ばれる。古い形の項目は go-keyring で、移し替えの途中なら一時的な項目を読む。
+// 何も書き換えない。ほかの gdrive-cli はロックの外で項目を書き換えないので、見えた項目は読むまで変わらない。
+func (s *nativeKeyStore) LoadLocked() (LoadedKey, bool, error) {
+	if err := s.guard(); err != nil {
+		return LoadedKey{}, false, err
+	}
+	src, ok, err := s.locate()
+	if err != nil || !ok {
+		return LoadedKey{}, false, err
+	}
+	key, err := s.readKey(src)
+	if errors.Is(err, errKeyringNotFound) {
+		// gdrive-cli でないプログラムが、読む前に消した。「ない」とは言い切れないので、使えないとする。
+		return LoadedKey{}, false, nativeUnavailable(err)
+	}
+	if err != nil {
+		return LoadedKey{}, false, err
+	}
+	return LoadedKey{Key: key, Unverified: src.unverified}, true, nil
+}
+
+// Adopt は、LoadLocked が Unverified で返した鍵を新しい形の項目に移す。設定ディレクトリのロックの中で呼ぶ。
+// 途中で失敗したら、そこで止めてエラーを返す。どこで止まっても鍵はどれかの項目に残り、次の LoadLocked と Adopt が続きを行う。
 func (s *nativeKeyStore) Adopt(key []byte) error {
 	if err := s.guard(); err != nil {
 		return err

@@ -109,10 +109,15 @@ func (l fakeLegacy) Get(service, user string) (string, error) {
 		return "", err
 	}
 	it, ok := l.f.items[user]
-	if service != keyringService || !ok || it.native {
+	switch {
+	case service != keyringService || !ok:
 		return "", errKeyringNotFound
+	case it.native:
+		// 本物の go-keyring は目印を見ない。新しい項目の ACL は /usr/bin/security を信頼していないので、ダイアログが出る
+		return "", errKeychainDenied
+	default:
+		return it.value, nil
 	}
-	return it.value, nil
 }
 
 func (l fakeLegacy) Delete(service, user string) error {
@@ -197,48 +202,105 @@ func TestNativeKeyStore(t *testing.T) {
 		}
 	})
 
+	// loads は、Load と LoadLocked。ロックの外でも中でも同じ結果になる場面で、両方を確かめる。
+	loads := []struct {
+		name string
+		load func(s *nativeKeyStore) (LoadedKey, bool, error)
+	}{
+		{"Load", (*nativeKeyStore).Load},
+		{"LoadLocked", (*nativeKeyStore).LoadLocked},
+	}
+
 	t.Run("新しい形の項目があれば、その鍵を Unverified=false で返す", func(t *testing.T) {
-		// Arrange
-		fx := newNativeFixture(t, t.TempDir())
-		key, enc := testNativeKey(t)
-		fx.put(fx.a, true, enc)
-		// Act
-		got, found, err := fx.store.Load()
-		// Assert
-		if err != nil || !found || got.Unverified || string(got.Key) != string(key) {
-			t.Fatalf("found=%v unverified=%v err=%v", found, got.Unverified, err)
-		}
-		if mutated(fx.kc.ops) {
-			t.Fatalf("書き換えた: %v", fx.kc.ops)
+		for _, l := range loads {
+			t.Run(l.name+" のとき", func(t *testing.T) {
+				// Arrange
+				fx := newNativeFixture(t, t.TempDir())
+				key, enc := testNativeKey(t)
+				fx.put(fx.a, true, enc)
+				// Act
+				got, found, err := l.load(fx.store)
+				// Assert
+				if err != nil || !found || got.Unverified || string(got.Key) != string(key) {
+					t.Fatalf("found=%v unverified=%v err=%v", found, got.Unverified, err)
+				}
+				if mutated(fx.kc.ops) {
+					t.Fatalf("書き換えた: %v", fx.kc.ops)
+				}
+			})
 		}
 	})
 
-	t.Run("目印のない項目は go-keyring で読み、Unverified=true で返し、何も書き換えない", func(t *testing.T) {
+	t.Run("ロックの外の Load は、古い形の項目も一時的な項目も読まず、鍵のない Unverified を返す", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			account func(fx *nativeFixture) string
+			native  bool
+			wantOps func(fx *nativeFixture) []string
+		}{
+			{
+				"本来の名前に目印のない項目がある",
+				func(fx *nativeFixture) string { return fx.a }, false,
+				func(fx *nativeFixture) []string { return []string{"Inspect:" + fx.a} },
+			},
+			{
+				"本来の名前の項目がなく、新しい形の一時的な項目がある",
+				func(fx *nativeFixture) string { return fx.tmp }, true,
+				func(fx *nativeFixture) []string { return []string{"Inspect:" + fx.a, "Inspect:" + fx.tmp} },
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// Arrange
+				fx := newNativeFixture(t, t.TempDir())
+				key, enc := testNativeKey(t)
+				fx.put(tt.account(fx), tt.native, enc)
+				// Act
+				got, found, err := fx.store.Load()
+				// Assert
+				if err != nil || !found || !got.Unverified || got.Key != nil {
+					t.Fatalf("key=%v found=%v unverified=%v err=%v", got.Key, found, got.Unverified, err)
+				}
+				if want := tt.wantOps(fx); !slices.Equal(fx.kc.ops, want) {
+					t.Fatalf("ops = %v, want %v（go-keyring も一時的な項目も読まない）", fx.kc.ops, want)
+				}
+
+				// Act（ロックの中で読み直す）
+				locked, found, err := fx.store.LoadLocked()
+				// Assert
+				if err != nil || !found || !locked.Unverified || string(locked.Key) != string(key) {
+					t.Fatalf("LoadLocked: found=%v unverified=%v err=%v", found, locked.Unverified, err)
+				}
+			})
+		}
+	})
+
+	t.Run("LoadLocked は目印のない項目を go-keyring で読み、Unverified=true で返し、何も書き換えない", func(t *testing.T) {
 		// Arrange
 		fx := newNativeFixture(t, t.TempDir())
 		key, enc := testNativeKey(t)
 		fx.put(fx.a, false, enc)
 		// Act
-		got, found, err := fx.store.Load()
+		got, found, err := fx.store.LoadLocked()
 		// Assert
 		if err != nil || !found || !got.Unverified || string(got.Key) != string(key) {
 			t.Fatalf("found=%v unverified=%v err=%v", found, got.Unverified, err)
 		}
-		if mutated(fx.kc.ops) {
-			t.Fatalf("書き換えた: %v", fx.kc.ops)
+		if want := []string{"Inspect:" + fx.a, "Get:" + fx.a}; !slices.Equal(fx.kc.ops, want) {
+			t.Fatalf("ops = %v, want %v", fx.kc.ops, want)
 		}
 		if it := fx.kc.items[fx.a]; it.native || it.value != enc || len(fx.kc.items) != 1 {
 			t.Fatalf("items = %v", fx.kc.items)
 		}
 	})
 
-	t.Run("項目がなく、新しい形の一時的な項目があれば、その鍵を Unverified=true で返す", func(t *testing.T) {
+	t.Run("LoadLocked は、項目がなく新しい形の一時的な項目があれば、その鍵を Unverified=true で返す", func(t *testing.T) {
 		// Arrange
 		fx := newNativeFixture(t, t.TempDir())
 		key, enc := testNativeKey(t)
 		fx.put(fx.tmp, true, enc)
 		// Act
-		got, found, err := fx.store.Load()
+		got, found, err := fx.store.LoadLocked()
 		// Assert
 		if err != nil || !found || !got.Unverified || string(got.Key) != string(key) {
 			t.Fatalf("found=%v unverified=%v err=%v", found, got.Unverified, err)
@@ -249,29 +311,37 @@ func TestNativeKeyStore(t *testing.T) {
 	})
 
 	t.Run("どちらもなければ found=false", func(t *testing.T) {
-		// Arrange
-		fx := newNativeFixture(t, t.TempDir())
-		// Act
-		got, found, err := fx.store.Load()
-		// Assert
-		if err != nil || found || got.Key != nil {
-			t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
+		for _, l := range loads {
+			t.Run(l.name+" のとき", func(t *testing.T) {
+				// Arrange
+				fx := newNativeFixture(t, t.TempDir())
+				// Act
+				got, found, err := l.load(fx.store)
+				// Assert
+				if err != nil || found || got.Key != nil {
+					t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
+				}
+			})
 		}
 	})
 
 	t.Run("一時的なアカウントに目印のない項目しかなければ found=false", func(t *testing.T) {
-		// Arrange
-		fx := newNativeFixture(t, t.TempDir())
-		_, enc := testNativeKey(t)
-		fx.put(fx.tmp, false, enc)
-		// Act
-		got, found, err := fx.store.Load()
-		// Assert
-		if err != nil || found || got.Key != nil {
-			t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
-		}
-		if mutated(fx.kc.ops) {
-			t.Fatalf("書き換えた: %v", fx.kc.ops)
+		for _, l := range loads {
+			t.Run(l.name+" のとき", func(t *testing.T) {
+				// Arrange
+				fx := newNativeFixture(t, t.TempDir())
+				_, enc := testNativeKey(t)
+				fx.put(fx.tmp, false, enc)
+				// Act
+				got, found, err := l.load(fx.store)
+				// Assert
+				if err != nil || found || got.Key != nil {
+					t.Fatalf("key=%v found=%v err=%v", got.Key, found, err)
+				}
+				if mutated(fx.kc.ops) {
+					t.Fatalf("書き換えた: %v", fx.kc.ops)
+				}
+			})
 		}
 	})
 
@@ -296,13 +366,21 @@ func TestNativeKeyStore(t *testing.T) {
 				}
 				fx.put(account, tt.native, broken)
 				// Act
-				_, found, err := fx.store.Load()
+				_, found, err := fx.store.LoadLocked()
+				_, _, unlockedErr := fx.store.Load()
 				// Assert
 				if domain.KindOf(err) != domain.KindSetup || found {
 					t.Fatalf("found=%v kind=%v err=%v", found, domain.KindOf(err), err)
 				}
 				if !strings.Contains(err.Error(), "キーチェーンの鍵の形が正しくありません") {
 					t.Fatalf("err = %v", err)
+				}
+				// ロックの外の Load が読むのは新しい形の本来の項目だけ。ほかは読まずに合図を返すので、形の誤りはまだ見えない。
+				if readsUnlocked := !tt.tmp && tt.native; readsUnlocked != (unlockedErr != nil) {
+					t.Fatalf("Load: err = %v", unlockedErr)
+				}
+				if unlockedErr != nil && !strings.Contains(unlockedErr.Error(), "キーチェーンの鍵の形が正しくありません") {
+					t.Fatalf("Load: err = %v", unlockedErr)
 				}
 				if mutated(fx.kc.ops) {
 					t.Fatalf("書き換えた: %v", fx.kc.ops)
@@ -322,6 +400,7 @@ func TestNativeKeyStore(t *testing.T) {
 			call func(s *nativeKeyStore) error
 		}{
 			{"Load", func(s *nativeKeyStore) error { _, _, err := s.Load(); return err }},
+			{"LoadLocked", func(s *nativeKeyStore) error { _, _, err := s.LoadLocked(); return err }},
 			{"Save", func(s *nativeKeyStore) error { return s.Save(key) }},
 			{"Adopt", func(s *nativeKeyStore) error { return s.Adopt(key) }},
 		}
@@ -362,6 +441,7 @@ func TestNativeKeyStore(t *testing.T) {
 			call func(s *nativeKeyStore) error
 		}{
 			{"Load", func(s *nativeKeyStore) error { _, _, err := s.Load(); return err }},
+			{"LoadLocked", func(s *nativeKeyStore) error { _, _, err := s.LoadLocked(); return err }},
 			{"Save", func(s *nativeKeyStore) error { return s.Save(key) }},
 			{"Adopt", func(s *nativeKeyStore) error { return s.Adopt(key) }},
 		}
@@ -399,7 +479,7 @@ func TestNativeKeyStore(t *testing.T) {
 		fx := newNativeFixture(t, t.TempDir())
 		key, enc := testNativeKey(t)
 		fx.put(fx.a, false, enc)
-		loaded, _, err := fx.store.Load()
+		loaded, _, err := fx.store.LoadLocked()
 		if err != nil || !loaded.Unverified {
 			t.Fatalf("unverified=%v err=%v", loaded.Unverified, err)
 		}
@@ -432,7 +512,7 @@ func TestNativeKeyStore(t *testing.T) {
 		}
 	})
 
-	t.Run("移し替えのどの段階で止まっても、もう一度 Load と Adopt をすれば鍵を失わずに終わる", func(t *testing.T) {
+	t.Run("移し替えのどの段階で止まっても、もう一度 LoadLocked と Adopt をすれば鍵を失わずに終わる", func(t *testing.T) {
 		tests := []struct {
 			name       string
 			failOp     func(fx *nativeFixture) string
@@ -449,7 +529,7 @@ func TestNativeKeyStore(t *testing.T) {
 				fx := newNativeFixture(t, t.TempDir())
 				key, enc := testNativeKey(t)
 				fx.put(fx.a, false, enc)
-				loaded, _, err := fx.store.Load()
+				loaded, _, err := fx.store.LoadLocked()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -473,9 +553,9 @@ func TestNativeKeyStore(t *testing.T) {
 
 				// Act（やり直す）
 				clear(fx.kc.fail)
-				again, found, err := fx.store.Load()
+				again, found, err := fx.store.LoadLocked()
 				if err != nil || !found || string(again.Key) != string(key) {
-					t.Fatalf("やり直しの Load: found=%v err=%v", found, err)
+					t.Fatalf("やり直しの LoadLocked: found=%v err=%v", found, err)
 				}
 				err = fx.store.Adopt(again.Key)
 				// Assert
@@ -633,28 +713,27 @@ func TestNativeKeyStore(t *testing.T) {
 		}
 	})
 
-	t.Run("ほかの gdrive-cli が移し替えている途中に読んでも、何も書き換えずに鍵を見つける", func(t *testing.T) {
+	t.Run("ロックの外の Load は、新しい形の項目が読む前に作り直されても、見直して新しい鍵を見つける", func(t *testing.T) {
 		// Arrange
 		fx := newNativeFixture(t, t.TempDir())
-		key, enc := testNativeKey(t)
-		fx.put(fx.a, false, enc)
+		_, oldEnc := testNativeKey(t)
+		newK, newEnc := testNativeKey(t)
+		fx.put(fx.a, true, oldEnc)
+		vanished := false
 		fx.kc.hook = func(op string) {
-			switch op {
-			case "Get:" + fx.a: // 古い項目を読む直前に、ほかの gdrive-cli が一時的な項目を作り、古い項目を消す
-				if it := fx.kc.items[fx.a]; !it.native {
-					fx.kc.items[fx.tmp] = fakeItem{native: true, value: enc}
-					delete(fx.kc.items, fx.a)
-				}
-			case "Get:" + fx.tmp: // 一時的な項目を読む直前に、本来の名前で作り、一時的な項目を消す
-				fx.kc.items[fx.a] = fakeItem{native: true, value: enc}
-				delete(fx.kc.items, fx.tmp)
+			switch {
+			case op == "Get:"+fx.a && !vanished: // 読む直前に、ほかの gdrive-cli の Save が古い鍵の項目を消す
+				vanished = true
+				delete(fx.kc.items, fx.a)
+			case op == "Inspect:"+fx.a && vanished: // 見直す前に、新しい鍵で作り終える
+				fx.kc.items[fx.a] = fakeItem{native: true, value: newEnc}
 			}
 		}
 		// Act
 		got, found, err := fx.store.Load()
 		// Assert
-		if err != nil || !found || string(got.Key) != string(key) {
-			t.Fatalf("found=%v err=%v ops=%v", found, err, fx.kc.ops)
+		if err != nil || !found || got.Unverified || string(got.Key) != string(newK) {
+			t.Fatalf("found=%v unverified=%v err=%v ops=%v", found, got.Unverified, err, fx.kc.ops)
 		}
 		if mutated(fx.kc.ops) {
 			t.Fatalf("書き換えた: %v", fx.kc.ops)
@@ -675,7 +754,7 @@ func TestNativeKeyStore(t *testing.T) {
 		key, enc := testNativeKey(t)
 		fx.put(abs, false, enc)
 		// Act
-		loaded, found, loadErr := fx.store.Load()
+		loaded, found, loadErr := fx.store.LoadLocked()
 		adoptErr := fx.store.Adopt(loaded.Key)
 		// Assert
 		if loadErr != nil || !found || !loaded.Unverified || string(loaded.Key) != string(key) || adoptErr != nil {

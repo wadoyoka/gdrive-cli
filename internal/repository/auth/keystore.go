@@ -19,11 +19,12 @@ const keyLength = 32
 // keyFileName は、GDRIVE_CLI_KEYRING=file のときに鍵を置く、設定ディレクトリの中のファイルの名前。
 const keyFileName = "key"
 
-// LoadedKey は、KeyStore.Load が見つけた鍵。
+// LoadedKey は、KeyStore.Load・LoadLocked が見つけた鍵。
 type LoadedKey struct {
 	Key []byte
 	// Unverified は、gdrive-cli が作った新しい形の項目から読んだと言えない鍵（古い形の項目、移し替えの途中の一時的な項目）。
-	// 呼び出し側は、今のファイルを復号できたときだけ使い、Adopt で新しい形に移す。
+	// Load が返す Unverified は合図で、Key を持たないことがある。呼び出し側は、ロックを取って LoadLocked で読み直し、
+	// 今のファイルを復号できたときだけ使い、Adopt で新しい形に移す。
 	Unverified bool
 }
 
@@ -33,10 +34,16 @@ type KeyStore interface {
 	Kind() string
 	// Load は、確かにないときだけ (LoadedKey{}, false, nil) を返す。
 	// 使えない・読めない・形が違うときは KindSetup、不正な GDRIVE_CLI_KEYRING は KindUsage。
+	// 設定ディレクトリのロックの外で呼んでよい。そのため、古い形の項目を go-keyring で読まない（読む間にほかの gdrive-cli が
+	// 移し終えると、/usr/bin/security が新しい形の項目に触れて、確認のダイアログが出るため）。
+	// 古い形の項目や移し替えの途中の項目があれば、Key のない Unverified を返す。
 	Load() (LoadedKey, bool, error)
+	// LoadLocked は、設定ディレクトリのロックの中だけで呼ぶ。古い形の項目（go-keyring）も含め、どの形の鍵も読む。
+	// 何も書き換えない。返す値の決まりは Load と同じ。
+	LoadLocked() (LoadedKey, bool, error)
 	// Save は鍵を置く。同じ名前の項目や key があれば置き換える。
 	Save(key []byte) error
-	// Adopt は、Load が Unverified で返した鍵を、新しい形の項目に移す。設定ディレクトリのロックの中で呼ぶ。
+	// Adopt は、LoadLocked が Unverified で返した鍵を、新しい形の項目に移す。設定ディレクトリのロックの中で呼ぶ。
 	Adopt(key []byte) error
 }
 
@@ -118,9 +125,10 @@ func (s invalidKeyStore) err() error {
 	return domain.Errorf(domain.KindUsage, "GDRIVE_CLI_KEYRING の値が正しくありません（os か file を指定してください）: %s", s.mode)
 }
 
-func (s invalidKeyStore) Load() (LoadedKey, bool, error) { return LoadedKey{}, false, s.err() }
-func (s invalidKeyStore) Save([]byte) error              { return s.err() }
-func (s invalidKeyStore) Adopt([]byte) error             { return s.err() }
+func (s invalidKeyStore) Load() (LoadedKey, bool, error)       { return LoadedKey{}, false, s.err() }
+func (s invalidKeyStore) LoadLocked() (LoadedKey, bool, error) { return s.Load() }
+func (s invalidKeyStore) Save([]byte) error                    { return s.err() }
+func (s invalidKeyStore) Adopt([]byte) error                   { return s.err() }
 
 type osKeyStore struct {
 	dir string
@@ -151,6 +159,9 @@ func (s *osKeyStore) Load() (LoadedKey, bool, error) {
 	}
 	return LoadedKey{Key: key}, true, nil
 }
+
+// LoadLocked は Load と同じ。Load が Unverified を返さないため。
+func (s *osKeyStore) LoadLocked() (LoadedKey, bool, error) { return s.Load() }
 
 func (s *osKeyStore) Save(key []byte) error {
 	if err := s.b.Set(keyringService, keyringAccount(s.dir), base64.StdEncoding.EncodeToString(key)); err != nil {
@@ -192,6 +203,9 @@ func (s *fileKeyStore) Load() (LoadedKey, bool, error) {
 	}
 	return LoadedKey{Key: key}, true, nil
 }
+
+// LoadLocked は Load と同じ。Load が Unverified を返さないため。
+func (s *fileKeyStore) LoadLocked() (LoadedKey, bool, error) { return s.Load() }
 
 // Adopt は何もしない。Load が Unverified を返さないため。
 func (s *fileKeyStore) Adopt([]byte) error { return nil }

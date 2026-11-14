@@ -51,7 +51,7 @@ type memKeys struct {
 	mu         sync.Mutex
 	kind       string
 	key        []byte
-	unverified bool // Load が Unverified で返す（古い形の項目から読んだ鍵の代わり）
+	unverified bool // LoadLocked が Unverified で返す（古い形の項目から読んだ鍵の代わり）。Load は鍵を持たない合図だけを返す
 	loadErr    error
 	adoptErr   error
 	loads      int
@@ -61,7 +61,17 @@ type memKeys struct {
 
 func (m *memKeys) Kind() string { return m.kind }
 
+// Load は、本物と同じく、ロックの外では Unverified の鍵を渡さない（Key が nil の合図だけ）。
+// Auth がロックの外で読んだ Unverified の鍵に頼らないことを、テストで確かめるため。
 func (m *memKeys) Load() (LoadedKey, bool, error) {
+	loaded, found, err := m.LoadLocked()
+	if loaded.Unverified {
+		loaded.Key = nil
+	}
+	return loaded, found, err
+}
+
+func (m *memKeys) LoadLocked() (LoadedKey, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.loads++

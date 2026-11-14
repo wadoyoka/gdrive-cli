@@ -197,6 +197,28 @@ func TestKeyStore(t *testing.T) {
 		}
 	})
 
+	t.Run("go-keyring・file・不正な値の LoadLocked は Load と同じ結果を返す", func(t *testing.T) {
+		// Arrange
+		k, _ := newKey()
+		dir := t.TempDir()
+		osStore, fileStore := newOSKeyStore(dir, newFakeKeyring()), newFileKeyStore(dir)
+		for _, s := range []KeyStore{osStore, fileStore} {
+			if err := s.Save(k); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, s := range []KeyStore{osStore, fileStore, invalidKeyStore{mode: "bogus"}} {
+			// Act
+			want, wantFound, wantErr := s.Load()
+			got, gotFound, gotErr := s.LoadLocked()
+			// Assert
+			if string(got.Key) != string(want.Key) || got.Unverified != want.Unverified || gotFound != wantFound ||
+				domain.KindOf(gotErr) != domain.KindOf(wantErr) || (gotErr == nil) != (wantErr == nil) {
+				t.Fatalf("%s: LoadLocked=(%v, %v) Load=(%v, %v)", s.Kind(), gotFound, gotErr, wantFound, wantErr)
+			}
+		}
+	})
+
 	t.Run("空文字と os は OS、file はファイルになる", func(t *testing.T) {
 		// Arrange
 		dir := t.TempDir()
