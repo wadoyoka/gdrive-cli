@@ -162,7 +162,7 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 - 守れるもの: 設定ディレクトリのファイルだけが外に出た場合（バックアップ、dotfiles の同期、誤ったコミット、ログへの貼り付けなど）。鍵がなければ使えない。
 - 守れないもの: 同じユーザーとして動くプログラム（AI エージェントを含む）が、gdrive-cli 本体を実行すること。ここでの守りは、`drive.file` スコープと、削除や共有の処理を持たない作り。設定ディレクトリのファイルの差し替えも守れない。Linux は今までどおり、同じユーザーのプログラムがキーチェーンの項目を読み出せる。
 - macOS では、キーチェーンの項目を読めるのは gdrive-cli の実行ファイルだけ。ほかのプログラム（`security find-generic-password` を含む）が読もうとすると、ダイアログが出る。gdrive-cli にコードを差し込むことも、hardened runtime で防ぐ。
-- macOS で入れ直したあとの最初の実行で、ダイアログが出る。ダイアログに gdrive-cli と書いてあるときだけ「常に許可」を押す（ログインのパスワードを求められたら入れる）。`security` やほかのプログラムの名前が出たら「拒否」を押す（下の「すべてを消すとき」で自分で `security delete-generic-password` を実行するときは除く）。許可すると、そのプログラムが項目の信頼リストに入り、また誰でも読める穴ができるため。AI エージェントに使わせる前に、自分で1回 `gdrive-cli status` を実行して許可しておく。ビルドし直すたびに、最初の実行でまたダイアログが出る。
+- macOS で、中身の変わった gdrive-cli（新しい版など）を入れたあとの最初の実行で、ダイアログが出る。macOS は、gdrive-cli を実行ファイルの中身で見分けるため。ダイアログに gdrive-cli と書いてあるときだけ「常に許可」を押す（ログインのパスワードを求められたら入れる）。`security` やほかのプログラムの名前が出たら「拒否」を押す（下の「すべてを消すとき」で自分で `security delete-generic-password` を実行するときは除く）。許可すると、そのプログラムが項目の信頼リストに入り、また誰でも読める穴ができるため。AI エージェントに使わせる前に、自分で1回 `gdrive-cli status` を実行して許可しておく。ソースを変えてビルドし直すたびに、最初の実行でまたダイアログが出る。同じソースから作り直しただけなら、中身が同じなので出ない。
 - 前の版（go-keyring）で作った項目は、最初の実行で新しい形に移る。ただし移すのは、その鍵で今の `client_secret.enc` と `token.enc` を復号できるときだけ。そうでなければ古い項目には手を付けず、次の `gdrive-cli login --client-secret <JSON>` で置き換わる。標準エラーに「キーチェーンの鍵を新しい形に移しました」と1行出る。
 - 前の版の鍵が、ほかのプログラムに読める状態だったかもしれないので、新しい鍵に替えたいときは、`gdrive-cli logout` を実行し（`token.enc` が消える）、`client_secret.enc` を設定ディレクトリの外へ移し、`gdrive-cli login --client-secret <JSON>` を実行する。暗号化したファイルが1つもなければ、`login --client-secret` が新しい鍵を作る。
 - `GDRIVE_CLI_KEYRING=file` では、鍵が同じディレクトリにあるので、守りは暗号化しない場合とほぼ同じになる。キーチェーンのない環境（SSH の接続先の Linux、コンテナなど）で、明示したときだけ使う。
@@ -412,7 +412,7 @@ make fmt            # golangci-lint fmt
 make test           # go test ./...
 ```
 
-- macOS では、`make build` で作る（`go build` のままでは hardened runtime が付かず、キーチェーンを使えない）。ビルドし直すたびに、最初の実行でダイアログが出る。`make install` は、`~/.local/bin` に入れるときに使う。
+- macOS では、`make build` で作る（`go build` のままでは hardened runtime が付かず、キーチェーンを使えない）。ソースを変えてビルドし直すと、最初の実行でダイアログが出る（同じソースから作り直しただけなら、中身が同じなので出ない）。`make install` は、`~/.local/bin` に入れるときに使う。
 - 実際の Drive を使う E2E テストは、既定では飛ばされる。先に `init` と `login` を済ませてから、次を実行する。ルートフォルダの下に `/e2e-<時刻>` を作り、終わると消す。
 
 ```bash
