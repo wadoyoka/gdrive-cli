@@ -17,3 +17,6 @@ node_modules/
 
 # 作業用の一時領域（コミットしない）
 .superpowers/
+
+# 設計書と実装計画（手元だけに置き、コミットしない）
+docs/superpowers/

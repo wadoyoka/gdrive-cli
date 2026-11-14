@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`、実装計画は `docs/superpowers/plans/` にある。
+Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`、実装計画は `docs/superpowers/plans/` に置く（手元だけ。`.gitignore` で除外し、コミットしない）。
 
 ## 文書の置き場所
 

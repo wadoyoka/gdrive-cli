@@ -17,7 +17,6 @@ make test           # go test ./...
 - タスクの管理には bd（beads）をステルスモードで使う（`bd ready`、`bd create`、`bd update <id> --status in_progress`、`bd close <id>`）。`.beads/` は git に入らない。
 - 試し用のファイルは `rm` ではなく、`trash/` へ `mv` で片付ける。
 - CI は commitlint、golangci-lint、`go test`、trivy を走らせる。
-- 設計は `docs/superpowers/specs/`、実装計画は `docs/superpowers/plans/` にある。
 - AI エージェント向けのスキルは `agents/` にある（[agents/README.md](../agents/README.md)）。
 
 ## E2E テスト
