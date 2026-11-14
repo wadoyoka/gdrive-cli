@@ -2,6 +2,12 @@
 
 Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`、実装計画は `docs/superpowers/plans/` にある。
 
+## 文書の置き場所
+
+- `README.md` は入門だけ（概要、gcloud と gdrive-cli のインストール、`setup`、アップロード）。コマンドの細かい動きや注意は `docs/` の各ファイルに書き、README からは表でリンクする。
+- AI エージェント向けのスキルは `agents/skills/<name>/` に置き、`agents/setup.sh` で `~/.claude/skills/` などへリンクして配る。CLI の振る舞い（フラグ、JSON の形、終了コード）を変えたら、`docs/commands.md` と `agents/skills/gdrive-cli/`（`SKILL.md`・`references/commands.md`）もそろえる。
+- `agents/setup.sh` を試すときは、`HOME` を scratchpad などの仮のディレクトリに向ける（本物の `~/.claude/` にリンクを張らない）。
+
 ## 試し用のファイルの片付け
 
 試し用に作ったファイルやディレクトリを片付けるときは、`rm` を使わず repo 直下の `trash/` へ `mv` する。`rm` は取り消せず、実行の前に確認を求められることも多いため。
