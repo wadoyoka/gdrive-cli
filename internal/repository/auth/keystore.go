@@ -55,11 +55,11 @@ type keyringBackend interface {
 
 var errKeyringNotFound = errors.New("キーチェーンに項目がありません")
 
-// NewKeyStore は、mode（GDRIVE_CLI_KEYRING の値）に合う KeyStore を返す。
+// NewKeyStore は、mode（GDRIVE_CLI_KEYRING の値）に合う KeyStore を返す。OS のキーチェーンの KeyStore は OS ごとに違う。
 func NewKeyStore(dir, mode string) KeyStore {
 	switch mode {
 	case "", "os":
-		return newOSKeyStore(dir, goKeyringBackend{})
+		return newPlatformOSKeyStore(dir)
 	case "file":
 		return newFileKeyStore(dir)
 	default:
