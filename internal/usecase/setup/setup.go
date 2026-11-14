@@ -337,7 +337,7 @@ func (u Setup) guide(id string, in Input) {
 	say := in.Ask.Say
 	say("次の4つを、ブラウザで行ってください（クライアントの JSON は、作成直後の画面でしかダウンロードできません）")
 	say("  1. ブランディング %s : アプリ名とサポート用メールアドレスを設定する", gcp.AuthConsoleURL("branding", id))
-	say("  2. 対象 %s : ユーザーの種類を「外部」、公開ステータスを「本番」にする（「テスト」だとリフレッシュトークンが 7 日で切れます）", gcp.AuthConsoleURL("audience", id))
+	say("  2. 対象 %s : ユーザーの種類を「外部」にする。公開ステータスは「テスト」のままにする。「テストユーザー」に、この CLI でドライブを使う Google アカウント（自分を含む）を追加する（テストユーザーでないアカウントはログインできません。リフレッシュトークンは 7 日で切れるので、そのたびに gdrive-cli login をやり直します）", gcp.AuthConsoleURL("audience", id))
 	say("  3. データアクセス %s : https://www.googleapis.com/auth/drive.file を追加する", gcp.AuthConsoleURL("scopes", id))
 	say("  4. クライアント %s : 種類「デスクトップアプリ」のクライアントを作り、作成直後の画面で JSON をダウンロードする。この画面を閉じるとシークレットは二度と表示されません。JSON はパスワードマネージャーなど安全な場所に保管してください", gcp.AuthConsoleURL("clients", id))
 	if in.NoBrowser || u.OpenURL == nil {

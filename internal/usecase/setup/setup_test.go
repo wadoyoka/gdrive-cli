@@ -212,6 +212,25 @@ func TestSetup(t *testing.T) {
 		}
 	})
 
+	t.Run("対象の案内は、公開ステータスをテストのままにし、使う人をテストユーザーに足させる", func(t *testing.T) {
+		// Arrange
+		f := newSetupFixture(t)
+		f.ask.answers = []askAnswer{{val: ""}, {val: "/s.json"}}
+
+		// Act
+		_, err := f.u.Run(context.Background(), f.input("", ""))
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !f.ask.saidContains("公開ステータスは「テスト」のままにする") || !f.ask.saidContains("テストユーザー") {
+			t.Errorf("said = %v", f.ask.said)
+		}
+		if f.ask.saidContains("「本番」にする") {
+			t.Errorf("本番にさせる案内が残っている: %v", f.ask.said)
+		}
+	})
+
 	t.Run("プロジェクトが既にあれば作らない", func(t *testing.T) {
 		// Arrange
 		f := newSetupFixture(t)
