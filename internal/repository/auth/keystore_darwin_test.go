@@ -61,6 +61,10 @@ func TestPlatformKeyStore(t *testing.T) {
 	t.Run("アカウント名が UTF-8 でないか NUL を含むときは、キーチェーンを呼ばずにエラーを返す", func(t *testing.T) {
 		for _, account := range []string{"/tmp/gdrive-cli-\xff", "/tmp/gdrive-cli\x00/other"} {
 			// Arrange
+			// checkAccount が断らなければ、下の呼び出しは本物のキーチェーンに届くので、呼ぶ前に止める。
+			if checkAccount(account) == nil {
+				t.Fatalf("checkAccount(%q) = nil, 断るはず", account)
+			}
 			var items secItems
 
 			// Act
