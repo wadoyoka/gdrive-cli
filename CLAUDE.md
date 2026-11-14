@@ -55,5 +55,5 @@ bd（beads）をステルスモードで使う。`.beads/` は git に入らな�
 
 ## 開発コマンド
 
-- `make lint` / `make fmt` / `make test`
+- `make build` / `make lint` / `make fmt` / `make test`
 - コミット時は lefthook が整形・lint・テスト・trivy・commitlint を走らせる。

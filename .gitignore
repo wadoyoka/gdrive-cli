@@ -4,6 +4,7 @@ token.json
 
 # `go build` が直下に出す実行ファイル
 /gdrive-cli
+/gdrive-cli.tmp
 
 # npm
 node_modules/

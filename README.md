@@ -384,6 +384,7 @@ ssh remote 'GDRIVE_CLI_KEYRING=file GDRIVE_CLI_CONFIG_DIR=/home/me/gdrive-cli-co
 
 ```bash
 mise install        # ツールを入れる。lefthook のフックも入る
+make build          # go build -o gdrive-cli ./cmd/gdrive-cli（リポジトリの直下に ./gdrive-cli を作る）
 make lint           # golangci-lint run ./...
 make fmt            # golangci-lint fmt
 make test           # go test ./...
