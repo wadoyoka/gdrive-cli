@@ -23,6 +23,13 @@ Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`
 
 - Claude は、本物の gcloud で GCP を変えるコマンド（`projects create`、`services enable` など）を実行しない。`gdrive-cli setup` を本物の gcloud で動かすのは利用者。
 - テストは偽物の gcloud と偽物のキーチェーンで行う。本物の OS のキーチェーンに触れるテストを書かない。
+- 実装がまだないテストを、失敗するのを見るために動かすときも同じ。古い配線のままだと、`NewKeyStore(dir, "os")` が本物のキーチェーンに届くことがある。プラットフォームごとの鍵置き場のテストは、先に具体的な型を確かめる。
+
+## キーチェーン
+
+- Claude は、`make build` で作った `./gdrive-cli` を `--help` 以外で実行しない（hardened runtime が付いていて、本物のキーチェーンに触れるため）。`make install` で入れたものも同じ。
+- macOS のキーチェーンの振る舞いを確かめるのは利用者。
+- `security` コマンドも実行しない。
 
 ## 層の分け方
 
@@ -55,5 +62,6 @@ bd（beads）をステルスモードで使う。`.beads/` は git に入らな�
 
 ## 開発コマンド
 
-- `make build` / `make lint` / `make fmt` / `make test`
+- `make build` / `make install` / `make lint` / `make fmt` / `make test`
+- `make build` は macOS で hardened runtime を付ける。`go build` のままではキーチェーンを使えない。`make install` は `~/.local/bin` に入れる（`BINDIR` で変えられる）。
 - コミット時は lefthook が整形・lint・テスト・trivy・commitlint を走らせる。

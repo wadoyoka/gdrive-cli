@@ -22,17 +22,28 @@ Claude Code などの AI が作った HTML や動画（数百 MB 以上のもの
 
 ## 必要なもの
 
-- Go 1.27.3 以上（`go install` で入れる場合）
+- Go 1.27.3 以上（`go install` や `make install` で入れる場合）
 - Google アカウント（個人のもの。Workspace ではない）
 - gcloud CLI（`gdrive-cli setup` が GCP のプロジェクトを作るために使う。手作業で設定する場合は不要）
 - ブラウザ（`login` のため。ない環境は「ブラウザのない環境」を参照）
 - macOS を主に想定している。Linux でも動く。トークンの暗号化の鍵は OS のキーチェーンに置く（キーチェーンのない環境は「トークンの暗号化」を参照）。
+- macOS では Xcode Command Line Tools（cgo と `codesign` のため）。
 
-入れ方
+入れ方（macOS）: リポジトリを clone して `make install` を実行する。`~/.local/bin` に入る（`make install BINDIR=/usr/local/bin` のように入れ先を変えられる）。
+
+```bash
+git clone https://github.com/wadoyoka/gdrive-cli.git
+cd gdrive-cli
+make install
+```
+
+入れ方（Linux）:
 
 ```bash
 go install github.com/wadoyoka/gdrive-cli/cmd/gdrive-cli@latest
 ```
+
+macOS で `go install` や `go build` で入れた gdrive-cli は、hardened runtime が付かないので、OS のキーチェーンを使えない（終了コード 3 で止まる）。その場合は `GDRIVE_CLI_KEYRING=file` を指定するか、`make install` で入れ直す。
 
 ## セットアップ
 
@@ -145,7 +156,10 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 | それ以外 | 終了コード 2 |
 
 - 守れるもの: 設定ディレクトリのファイルだけが外に出た場合（バックアップ、dotfiles の同期、誤ったコミット、ログへの貼り付けなど）。鍵がなければ使えない。
-- 守れないもの: 同じユーザーとして動くプログラム（AI エージェントを含む）。gdrive-cli 自体を実行できるし、キーチェーンの項目を読み出せる場合もある。ここでの守りは、`drive.file` スコープと、削除や共有の処理を持たない作り。
+- 守れないもの: 同じユーザーとして動くプログラム（AI エージェントを含む）が、gdrive-cli 本体を実行すること。ここでの守りは、`drive.file` スコープと、削除や共有の処理を持たない作り。設定ディレクトリのファイルの差し替えも守れない。Linux は今までどおり、同じユーザーのプログラムがキーチェーンの項目を読み出せる。
+- macOS では、キーチェーンの項目を読めるのは gdrive-cli の実行ファイルだけ。ほかのプログラム（`security find-generic-password` を含む）が読もうとすると、ダイアログが出る。gdrive-cli にコードを差し込むことも、hardened runtime で防ぐ。
+- macOS で入れ直したあとの最初の実行で、ダイアログが出る。「常に許可」を押す（ログインのパスワードを求められたら入れる）。AI エージェントに使わせる前に、自分で1回 `gdrive-cli status` を実行して許可しておく。ビルドし直すたびに、最初の実行でまたダイアログが出る。
+- 前の版（go-keyring）で作った項目は、最初の実行で自動で新しい形に移る。標準エラーに「キーチェーンの鍵を新しい形に移しました」と1行出る。
 - `GDRIVE_CLI_KEYRING=file` では、鍵が同じディレクトリにあるので、守りは暗号化しない場合とほぼ同じになる。キーチェーンのない環境（SSH の接続先の Linux、コンテナなど）で、明示したときだけ使う。
 - キーチェーンが使えない（ロックされている、Secret Service がないなど）ときは、新しい鍵を作らずに終了コード 3 で止まり、`GDRIVE_CLI_KEYRING=file` の案内を出す。鍵を作るのは、クライアントシークレットを取り込む `login --client-secret`（と `setup`）だけ。
 - 鍵がない、合わない、キーチェーンが使えない場合は、終了コード 3 で止まる。`status` は、ログインしていない扱いにして、理由を表示する。
@@ -159,6 +173,8 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 rm -r <設定ディレクトリの絶対パス>
 security delete-generic-password -s gdrive-cli -a <設定ディレクトリの絶対パス>
 ```
+
+ダイアログが出たら許可する。移し替えが途中で止まったときは、アカウント名が `<設定ディレクトリの絶対パス>#migrating` の項目が残ることがある。同じやり方で消す（`-a '<設定ディレクトリの絶対パス>#migrating'`）。
 
 `<設定ディレクトリの絶対パス>` は、実際に使っているディレクトリに置き換える。`GDRIVE_CLI_CONFIG_DIR` や `XDG_CONFIG_HOME` を設定していると既定の `~/.config/gdrive-cli` とは限らないので、先に `gdrive-cli status` を実行して、表示される「設定ディレクトリ」で確かめる。消したものは元に戻せない。ドライブにある CLI のファイルは消えない。
 
@@ -384,17 +400,29 @@ ssh remote 'GDRIVE_CLI_KEYRING=file GDRIVE_CLI_CONFIG_DIR=/home/me/gdrive-cli-co
 
 ```bash
 mise install        # ツールを入れる。lefthook のフックも入る
-make build          # go build -o gdrive-cli ./cmd/gdrive-cli（リポジトリの直下に ./gdrive-cli を作る）
+make build          # リポジトリの直下に ./gdrive-cli を作る。macOS では hardened runtime を付ける
+make install        # ~/.local/bin に入れる（BINDIR で変えられる）。macOS では hardened runtime を付ける
 make lint           # golangci-lint run ./...
 make fmt            # golangci-lint fmt
 make test           # go test ./...
 ```
 
+- macOS では、`make build` で作る（`go build` のままでは hardened runtime が付かず、キーチェーンを使えない）。ビルドし直すたびに、最初の実行でダイアログが出る。`make install` は、`~/.local/bin` に入れるときに使う。
 - 実際の Drive を使う E2E テストは、既定では飛ばされる。先に `init` と `login` を済ませてから、次を実行する。ルートフォルダの下に `/e2e-<時刻>` を作り、終わると消す。
 
 ```bash
 GDRIVE_CLI_E2E=1 go test ./internal/repository/driveapi/ -run TestE2E -v
 ```
+
+- macOS では、`go test` の実行ファイルに hardened runtime が付かないので、E2E テストは OS のキーチェーンを使えない。普段の設定ディレクトリとは別のディレクトリで、`GDRIVE_CLI_KEYRING=file` を指定してログインしてから動かす。
+
+```bash
+export GDRIVE_CLI_CONFIG_DIR="$HOME/.config/gdrive-cli-e2e" GDRIVE_CLI_KEYRING=file
+gdrive-cli init && gdrive-cli login --client-secret <JSON>
+GDRIVE_CLI_E2E=1 go test ./internal/repository/driveapi/ -run TestE2E -v
+```
+
+- 普段の設定ディレクトリを `GDRIVE_CLI_KEYRING=file` で使うと、`key` が別にできて、普段の鍵と食い違う。そのため、別のディレクトリにする。
 
 - ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、node、pnpm）。CI も同じ版を使う。
 - コミット時は lefthook が、gofmt、golangci-lint、go test、trivy（secret と vuln）、commitlint を走らせる。
