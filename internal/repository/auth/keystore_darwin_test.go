@@ -31,6 +31,11 @@ func TestPlatformKeyStore(t *testing.T) {
 			if _, ok := ns.items.(secItems); !ok {
 				t.Fatalf("NewKeyStore(dir, %q) の items = %T, secItems のはず", mode, ns.items)
 			}
+			// guard が配線されていることを、hardened runtime のない go test の実行ファイルで確かめる。
+			gerr := ns.guard()
+			if domain.KindOf(gerr) != domain.KindSetup || gerr == nil || !strings.Contains(gerr.Error(), "hardened runtime") {
+				t.Fatalf("NewKeyStore(dir, %q) の guard() = %v, hardened runtime の KindSetup のはず", mode, gerr)
+			}
 		}
 	})
 

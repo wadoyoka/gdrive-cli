@@ -96,6 +96,8 @@ func (a *Auth) withHTTPClient(ctx context.Context) context.Context {
 
 // loadKey は、鍵を Keys.Load で探す。見つけたらメモリに持つ。鍵を作ることはしない。
 // Unverified の鍵は、adoptKey で今のファイルを復号できるかを確かめてから使う。
+// 鍵が Unverified のときは adoptKey が設定ディレクトリのロックを取る。TokenSource が Remote.Locker の区間の前に鍵を読んで持つので今は安全だが、
+// 区間の中で初めて呼ぶと keyLockTimeout まで待って失敗する。
 func (a *Auth) loadKey() (key []byte, found bool, err error) {
 	loaded, found, err := a.cachedOrLoadKey()
 	if err != nil || !found {
