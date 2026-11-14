@@ -94,6 +94,21 @@ func TestRepositoryFollowsArchitecture(t *testing.T) {
 	})
 }
 
+func TestCgoOnlyInKeychain(t *testing.T) {
+	// Arrange
+	root := "../.."
+
+	// Act
+	got, err := CgoFiles(root)
+	// Assert
+	if err != nil {
+		t.Fatalf("CgoFiles(%q) がエラーを返しました: %v", root, err)
+	}
+	if len(got) > 0 {
+		t.Errorf("cgo（import \"C\"）は internal/repository/keychain/ の中だけに置けます。次のファイルが外にあります:\n%s", strings.Join(got, "\n"))
+	}
+}
+
 // inModule は、この module のパッケージのパスを module の直下からのパスにする。
 func inModule(pkgPath string) string {
 	return strings.TrimPrefix(pkgPath, modulePath+"/")
