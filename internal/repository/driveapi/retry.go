@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"syscall"
 	"time"
 
 	"google.golang.org/api/googleapi"
@@ -58,7 +57,15 @@ func isNetworkError(err error) bool {
 	if errors.As(err, &uerr) && errors.Is(uerr.Err, io.EOF) {
 		return true
 	}
-	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	for _, errno := range connErrnos {
+		if errors.Is(err, errno) {
+			return true
+		}
+	}
+	return false
 }
 
 // retry は、fn が やり直せる失敗を返したとき、1s、2s、4s、8s と待って、最大 attempts 回まで呼ぶ。
