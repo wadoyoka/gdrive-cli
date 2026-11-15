@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ func TestLockFile(t *testing.T) {
 		if domain.KindOf(errBusy) != domain.KindUnexpected || errBusy == nil {
 			t.Errorf("errBusy = %v", errBusy)
 		}
+		if !errors.Is(errBusy, context.DeadlineExceeded) {
+			t.Errorf("errBusy が時間切れではない: %v", errBusy)
+		}
 		if errFree != nil {
 			t.Fatalf("errFree = %v", errFree)
 		}
@@ -51,6 +55,9 @@ func TestLockFile(t *testing.T) {
 		// Assert
 		if errBusy == nil || domain.KindOf(errBusy) != domain.KindUnexpected {
 			t.Errorf("errBusy = %v", errBusy)
+		}
+		if !errors.Is(errBusy, context.DeadlineExceeded) {
+			t.Errorf("errBusy が時間切れではない: %v", errBusy)
 		}
 	})
 }
