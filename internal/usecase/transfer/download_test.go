@@ -45,7 +45,7 @@ func listTree(t *testing.T, dir string) []string {
 		}
 		rel, _ := filepath.Rel(dir, p)
 		if rel != "." {
-			out = append(out, rel)
+			out = append(out, filepath.ToSlash(rel))
 		}
 		return nil
 	})
