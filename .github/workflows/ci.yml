@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 
@@ -132,5 +132,7 @@ jobs:
           version: 2026.11.2
           install_args: trivy
 
+      # 対象・重大度・除外ディレクトリは trivy.yaml に、秘密情報の規則は trivy-secret.yaml に書いてある。
+      # 毎日の検査と、直った版への更新は trivy-daily.yml。
       - name: Scan (trivy)
         run: trivy fs .

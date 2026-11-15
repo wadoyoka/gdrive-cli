@@ -1,5 +1,5 @@
 # `trivy fs .` がカレントディレクトリのこのファイルを自動で読む。
-# ローカル（lefthook）と CI（.github/workflows/ci.yml）で同じ設定を使うため、
+# ローカル（lefthook）と CI（.github/workflows/ci.yml・trivy-daily.yml）で同じ設定を使うため、
 # オプションはコマンドラインではなくここに書く。
 scan:
   scanners:
