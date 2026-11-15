@@ -99,6 +99,7 @@ gdrive-cli download [-p] [--overwrite | --skip-existing] --json <ドライブの
 - 保存先のフォルダは既にあるものでなければならない。`-p` でなければ作る。
 - 手元に同じ名前があれば、既定ではエラー（終了コード 5、何もしない）。`--overwrite` で上書き、`--skip-existing` で飛ばす。
 - Google ドキュメント形式のファイルは、警告を出して飛ばす。
+- Windows では、Windows のファイル名に使えない名前（`: * ? " < > |` を含むもの、末尾が `.` か空白のもの、`CON`・`NUL`・`COM1` などの予約名）も、警告を出して飛ばす。
 - 結果の形は `upload` と同じ。`action` には `overwritten` もある。
 - `--overwrite` が一部だけ失敗したときは、同じコマンドをもう一度実行する（`--skip-existing` に変えない）。
 - macOS など大文字小文字を区別しない手元のファイルシステムで、ドライブ上の 2 つの項目が同じ手元のファイルになるとき（`Report.txt` と `report.txt`）は、終了コード 5 で何もしない。

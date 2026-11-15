@@ -14,6 +14,7 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/domain/plan"
+	"github.com/wadoyoka/gdrive-cli/internal/domain/winpath"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 )
 
@@ -26,6 +27,8 @@ const (
 type Download struct {
 	Remote      usecase.Remote
 	Concurrency int // 同時に受け取るファイルの数。0 なら 4
+	// WindowsNames が true なら、Windows のファイル名に使えない名前も警告して飛ばす。
+	WindowsNames bool
 }
 
 // DownloadInput は、Download の入力。
@@ -70,7 +73,7 @@ func (u Download) Run(ctx context.Context, in DownloadInput) (Result, error) {
 	case in.SkipExisting:
 		mode = plan.ConflictSkip
 	}
-	nodes, warnings, err := planDownload(ctx, s, in.Sources, dest, mode)
+	nodes, warnings, err := planDownload(ctx, s, in.Sources, dest, mode, u.WindowsNames)
 	warnings = append(warnings, s.Resolver.Warnings()...)
 	if err != nil {
 		return emptyTransfer(warnings), err
@@ -107,8 +110,8 @@ func checkDestDir(dest string, parents bool) error {
 }
 
 // planDownload は、ソースをドライブからたどって計画の項目を作る（親が子より先に並ぶ）。手元には何も書かない。
-func planDownload(ctx context.Context, s *usecase.Session, sources []domain.RemotePath, dest string, mode plan.ConflictMode) ([]*downloadNode, []string, error) {
-	p := &planner{ctx: ctx, s: s, dest: dest, mode: mode}
+func planDownload(ctx context.Context, s *usecase.Session, sources []domain.RemotePath, dest string, mode plan.ConflictMode, windowsNames bool) ([]*downloadNode, []string, error) {
+	p := &planner{ctx: ctx, s: s, dest: dest, mode: mode, windowsNames: windowsNames}
 	for _, src := range sources {
 		e, err := s.Resolver.Resolve(ctx, src)
 		if err != nil {
@@ -138,13 +141,14 @@ func planDownload(ctx context.Context, s *usecase.Session, sources []domain.Remo
 }
 
 type planner struct {
-	ctx       context.Context
-	s         *usecase.Session
-	dest      string
-	mode      plan.ConflictMode
-	nodes     []*downloadNode
-	warnings  []string
-	conflicts []string
+	ctx          context.Context
+	s            *usecase.Session
+	dest         string
+	mode         plan.ConflictMode
+	windowsNames bool
+	nodes        []*downloadNode
+	warnings     []string
+	conflicts    []string
 }
 
 // add は、e を計画に足す。フォルダなら中身も足す。
@@ -153,7 +157,7 @@ func (p *planner) add(parent *downloadNode, path domain.RemotePath, e domain.Ent
 	if parent != nil {
 		base = parent.item.LocalPath
 	}
-	if !safeName(e.Name) {
+	if !safeName(e.Name) || (p.windowsNames && winpath.UnsafeName(e.Name)) {
 		p.warnings = append(p.warnings, unsafeNameWarning(path))
 		return nil
 	}

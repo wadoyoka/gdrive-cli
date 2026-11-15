@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"golang.org/x/term"
@@ -32,6 +33,7 @@ func main() {
 }
 
 func run(ctx context.Context) int {
+	onWindows := runtime.GOOS == "windows"
 	dir, err := config.DefaultDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
@@ -57,7 +59,7 @@ func run(ctx context.Context) int {
 		Mkdir:    remotefs.Mkdir{Remote: remote},
 		List:     remotefs.List{Remote: remote},
 		Upload:   transfer.Upload{Remote: remote},
-		Download: transfer.Download{Remote: remote},
+		Download: transfer.Download{Remote: remote, WindowsNames: onWindows},
 		Move:     remotefs.Move{Remote: remote},
 		Policy:   policy,
 		Setup: setup.Setup{

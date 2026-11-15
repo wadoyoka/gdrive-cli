@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -215,6 +216,56 @@ func TestDownload(t *testing.T) {
 		}
 		if d.CallCount("Download") != 1 {
 			t.Errorf("Download=%d", d.CallCount("Download"))
+		}
+	})
+
+	t.Run("Windows の決まりを効かせると、Windows で使えない名前は警告して飛ばし、ほかは受け取る", func(t *testing.T) {
+		// Arrange
+		d, src, dir := newDownloadFixture(t)
+		d.AddFile(src.ID, "a:b.txt", []byte("x"))
+		d.AddFile(src.ID, "CON.txt", []byte("x"))
+		d.AddFile(src.ID, "ok.txt", []byte("ok"))
+		u := Download{Remote: usecasetest.NewRemote(d), WindowsNames: true}
+
+		// Act
+		res, err := u.Run(context.Background(), DownloadInput{Sources: []domain.RemotePath{usecasetest.MustPath(t, "/src")}, DestDir: dir})
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := listTree(t, dir); !slices.Equal(got, []string{"src", "src/ok.txt"}) {
+			t.Errorf("tree=%v", got)
+		}
+		for _, w := range []string{"/src/a:b.txt", "/src/CON.txt"} {
+			if !slices.Contains(res.Warnings, "手元で使えない名前なので飛ばしました: "+w) {
+				t.Errorf("警告がない: %s in %v", w, res.Warnings)
+			}
+		}
+		if len(res.Warnings) != 2 {
+			t.Errorf("warnings=%v", res.Warnings)
+		}
+	})
+
+	t.Run("Windows の決まりを効かせなければ a:b.txt も受け取る", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows では a:b.txt というファイルを作れない")
+		}
+		// Arrange
+		d, src, dir := newDownloadFixture(t)
+		d.AddFile(src.ID, "a:b.txt", []byte("x"))
+		u := Download{Remote: usecasetest.NewRemote(d), WindowsNames: false}
+
+		// Act
+		res, err := u.Run(context.Background(), DownloadInput{Sources: []domain.RemotePath{usecasetest.MustPath(t, "/src")}, DestDir: dir})
+		// Assert
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := listTree(t, dir); !slices.Equal(got, []string{"src", "src/a:b.txt"}) {
+			t.Errorf("tree=%v", got)
+		}
+		if len(res.Warnings) != 0 {
+			t.Errorf("warnings=%v", res.Warnings)
 		}
 	})
 
