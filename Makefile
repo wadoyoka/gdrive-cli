@@ -1,5 +1,8 @@
 .PHONY: help build install lint fmt test
 
+# 引数なしの make は help を表示する（OS ごとの build が先に書かれていても build は走らない）。
+.DEFAULT_GOAL := help
+
 # OS で分ける。$(OS) は Windows の環境変数で、PowerShell・cmd・Git Bash のどれから make を実行しても入っている。
 # Windows のレシピは go だけを呼ぶ（Scoop の make は sh.exe がないと cmd.exe でレシピを動かすため）。uname は Windows 側では呼ばない。
 ifeq ($(OS),Windows_NT)
