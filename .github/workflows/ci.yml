@@ -72,6 +72,52 @@ jobs:
       - name: Lint (golangci-lint)
         run: golangci-lint run ./...
 
+      # Windows 用のファイル（_windows.go）も lint する。Linux の上で動くので軽く、毎回動かす。
+      - name: Lint for Windows (golangci-lint)
+        env:
+          GOOS: windows
+        run: golangci-lint run ./...
+
+      - name: Test (go)
+        run: go test ./...
+
+  # Windows のマシンは遅いので、毎回は動かさず、手で起動したとき（workflow_dispatch）だけ動かす。
+  # 別のワークフローのファイルにせず ci.yml に置くのは、workflow_dispatch で起動できるのが
+  # 既定のブランチにあるワークフローだけだから。ci.yml が main にあれば、作業ブランチを選んでも
+  # そのブランチの ci.yml（このジョブを含む）が動く。
+  go-windows:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup toolchain
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: 2026.11.2
+          install_args: go
+
+      - name: Read Go cache paths
+        id: go-cache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+          } >> "$GITHUB_OUTPUT"
+
+      # キーに runner.os を入れ、Linux のキャッシュと混ざらないようにする。
+      - name: Cache Go builds
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', '.mise.toml') }}
+          restore-keys: go-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Test (go)
         run: go test ./...
 
