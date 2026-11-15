@@ -3,56 +3,60 @@
 package atomicfile
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
 
 func TestWriteWindows(t *testing.T) {
-	t.Run("ほかのプロセスが読み続けていても、置き換えが失敗しない", func(t *testing.T) {
+	t.Run("ほかのプロセスが開いている間の置き換えは、閉じたあとに試し直して成功する", func(t *testing.T) {
 		// Arrange
 		path := filepath.Join(t.TempDir(), "target.json")
 		if err := Write(path, []byte("first"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		stop := make(chan struct{})
-		var wg sync.WaitGroup
-		var readErr error
-		wg.Go(func() {
-			deadline := time.Now().Add(time.Second)
-			for time.Now().Before(deadline) {
-				select {
-				case <-stop:
-					return
-				default:
-				}
-				if _, err := os.ReadFile(path); err != nil && !errors.Is(err, fs.ErrNotExist) { //nolint:gosec // テストが作った一時ファイル
-					readErr = err
-					return
-				}
-			}
-		})
+		held, err := os.Open(path) //nolint:gosec // テストが作った一時ファイル
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = held.Close() }()
+		type result struct {
+			err     error
+			elapsed time.Duration
+		}
+		done := make(chan result, 1)
 
 		// Act
-		var writeErr error
-		for range 50 {
-			if writeErr = Write(path, []byte("data"), 0o600); writeErr != nil {
-				break
-			}
+		start := time.Now()
+		go func() {
+			err := Write(path, []byte("second"), 0o600)
+			done <- result{err: err, elapsed: time.Since(start)}
+		}()
+		time.Sleep(200 * time.Millisecond)
+		if err := held.Close(); err != nil {
+			t.Fatal(err)
 		}
-		close(stop)
-		wg.Wait()
+		var got result
+		select {
+		case got = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Write が終わりません")
+		}
 
 		// Assert
-		if writeErr != nil {
-			t.Errorf("Write: %v", writeErr)
+		if got.err != nil {
+			t.Fatalf("Write: %v", got.err)
 		}
-		if readErr != nil {
-			t.Errorf("読む側のエラー: %v", readErr)
+		if got.elapsed < 150*time.Millisecond {
+			t.Errorf("elapsed = %v, want >= 150ms（試し直した証拠）", got.elapsed)
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // テストが作った一時ファイル
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "second" {
+			t.Errorf("data = %q, want %q", data, "second")
 		}
 	})
 }
