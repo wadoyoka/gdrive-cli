@@ -11,8 +11,9 @@ func TestResolve(t *testing.T) {
 		vars map[string]string
 		want string
 	}{
-		{"環境変数なし", nil, "/h/.config/gdrive-cli"},
-		{"XDG_CONFIG_HOME", map[string]string{"XDG_CONFIG_HOME": "/x"}, "/x/gdrive-cli"},
+		// 期待値は filepath.Join で作る（Windows では \ 区切りになる）。
+		{"環境変数なし", nil, filepath.Join("/h", ".config", "gdrive-cli")},
+		{"XDG_CONFIG_HOME", map[string]string{"XDG_CONFIG_HOME": "/x"}, filepath.Join("/x", "gdrive-cli")},
 		{"GDRIVE_CLI_CONFIG_DIR", map[string]string{"GDRIVE_CLI_CONFIG_DIR": "/c"}, "/c"},
 		{"両方あれば GDRIVE_CLI_CONFIG_DIR", map[string]string{"GDRIVE_CLI_CONFIG_DIR": "/c", "XDG_CONFIG_HOME": "/x"}, "/c"},
 	}
