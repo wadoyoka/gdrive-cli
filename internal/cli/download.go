@@ -16,9 +16,9 @@ func newDownloadCommand(d Deps, asJSON *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sources := make([]domain.RemotePath, 0, len(args)-1)
 			for _, a := range args[:len(args)-1] {
-				p, err := domain.ParseRemotePath(a)
+				p, err := parseRemotePath(a, d.WindowsPaths)
 				if err != nil {
-					return usageError(err)
+					return err
 				}
 				sources = append(sources, p)
 			}

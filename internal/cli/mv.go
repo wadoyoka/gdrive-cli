@@ -14,7 +14,7 @@ func newMvCommand(d Deps, asJSON *bool) *cobra.Command {
 		Short: "ファイルやフォルダを移す（名前も変えられる）",
 		Args:  usageArgs(cobra.MinimumNArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paths, err := parseRemotePaths(args)
+			paths, err := parseRemotePaths(args, d.WindowsPaths)
 			if err != nil {
 				return err
 			}

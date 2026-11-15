@@ -99,3 +99,37 @@ func TestLsCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestLsCommandWindowsPaths(t *testing.T) {
+	t.Run("Windows の判定を効かせると、C: で始まるパスは終了コード 2 で直し方を出す", func(t *testing.T) {
+		// Arrange
+		d, out, errb, _ := newDeps(t)
+		d = withRemote(d)
+		d.WindowsPaths = true
+		initAndClear(t, d, out, errb)
+
+		// Act
+		code := Execute(context.Background(), d, []string{"ls", "C:/Program Files/Git/videos"})
+
+		// Assert
+		if code != 2 || !strings.Contains(errb.String(), "//") {
+			t.Errorf("code=%d err=%q", code, errb.String())
+		}
+	})
+
+	t.Run("Windows の判定を効かせても、引数なしの ls は通る", func(t *testing.T) {
+		// Arrange
+		d, out, errb, _ := newDeps(t)
+		d = withRemote(d)
+		d.WindowsPaths = true
+		initAndClear(t, d, out, errb)
+
+		// Act
+		code := Execute(context.Background(), d, []string{"ls"})
+
+		// Assert
+		if want := "a.txt\n"; code != 0 || out.String() != want {
+			t.Errorf("code=%d out=%q err=%q", code, out.String(), errb.String())
+		}
+	})
+}

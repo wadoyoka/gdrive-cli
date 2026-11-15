@@ -6,15 +6,31 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
+	"github.com/wadoyoka/gdrive-cli/internal/domain/winpath"
 )
 
-// parseRemotePaths は、引数をドライブ側のパスにする。誤りは KindUsage。
-func parseRemotePaths(args []string) ([]domain.RemotePath, error) {
+// parseRemotePath は、引数をドライブ側のパスにする。誤りは KindUsage。
+// windows が true なら、解釈の前に、Git Bash が書き換えたパスと \ 区切りのパスを止める。
+func parseRemotePath(s string, windows bool) (domain.RemotePath, error) {
+	if windows {
+		if err := winpath.CheckRemoteArg(s); err != nil {
+			return domain.RemotePath{}, usageError(err)
+		}
+	}
+	p, err := domain.ParseRemotePath(s)
+	if err != nil {
+		return domain.RemotePath{}, usageError(err)
+	}
+	return p, nil
+}
+
+// parseRemotePaths は、引数をそれぞれドライブ側のパスにする。誤りは KindUsage。
+func parseRemotePaths(args []string, windows bool) ([]domain.RemotePath, error) {
 	paths := make([]domain.RemotePath, 0, len(args))
 	for _, a := range args {
-		p, err := domain.ParseRemotePath(a)
+		p, err := parseRemotePath(a, windows)
 		if err != nil {
-			return nil, usageError(err)
+			return nil, err
 		}
 		paths = append(paths, p)
 	}
@@ -28,7 +44,7 @@ func newMkdirCommand(d Deps, asJSON *bool) *cobra.Command {
 		Short: "フォルダを作る",
 		Args:  usageArgs(cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			paths, err := parseRemotePaths(args)
+			paths, err := parseRemotePaths(args, d.WindowsPaths)
 			if err != nil {
 				return err
 			}

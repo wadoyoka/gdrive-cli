@@ -254,3 +254,22 @@ func TestUploadCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestUploadCommandWindowsPaths(t *testing.T) {
+	t.Run("Windows の判定を効かせると upload の \\ 区切りの送り先は終了コード 2", func(t *testing.T) {
+		// Arrange
+		d, out, errb, _ := newDeps(t)
+		d = withUpload(d, &uploadDrive{})
+		d.WindowsPaths = true
+		initAndClear(t, d, out, errb)
+		a := localFile(t, "a.mp4", "video")
+
+		// Act
+		code := Execute(context.Background(), d, []string{"upload", a, `\videos\2026`})
+
+		// Assert
+		if code != 2 || !strings.Contains(errb.String(), "`/` で区切って") {
+			t.Errorf("code=%d err=%q", code, errb.String())
+		}
+	})
+}

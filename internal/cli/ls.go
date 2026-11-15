@@ -17,13 +17,13 @@ func newLsCommand(d Deps, asJSON *bool) *cobra.Command {
 		Short: "フォルダの中身を表示する",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			arg := "/"
+			// 引数がないときの "/" は、こちらで決めた値なので、Windows の判定を通さない。
+			p, err := parseRemotePath("/", false)
 			if len(args) == 1 {
-				arg = args[0]
+				p, err = parseRemotePath(args[0], d.WindowsPaths)
 			}
-			p, err := domain.ParseRemotePath(arg)
 			if err != nil {
-				return usageError(err)
+				return err
 			}
 			entries, err := d.List.Run(cmd.Context(), p, recursive)
 			if err != nil {

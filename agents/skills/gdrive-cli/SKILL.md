@@ -34,6 +34,7 @@ gdrive-cli status --json
 ### 2. 送り先を決める
 
 - ドライブ側のパスは、ルートフォルダを `/` とする（例: `/videos/2026-11/intro.mp4`）。
+- Windows の Git Bash で実行するときは、ドライブ側のパスを `//` で始める（例: `gdrive-cli upload ./a.txt //videos`、ルートは `//`）。手元のパスはそのまま書く。`C:/...` の形や `\` を含むドライブ側のパスは、終了コード 2 で止まる。`MSYS_NO_PATHCONV=1` は付けない（手元のパスが壊れる）。PowerShell と cmd では `/videos` のままでよい。
 - 送り先の候補が分からなければ、`gdrive-cli ls --json /` や `gdrive-cli ls -R --json /<フォルダ>` で見てから決める。
 - 人が送り先を指定していなければ、中身の分かる名前のフォルダを提案する（例: `/pages/2026-11`）。
 

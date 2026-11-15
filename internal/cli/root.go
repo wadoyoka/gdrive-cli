@@ -35,6 +35,9 @@ type Deps struct {
 	Progress bool // 標準エラーがターミナルなら true
 	// Interactive は、標準入力と標準エラーが両方とも端末なら true。
 	Interactive bool
+	// WindowsPaths は、Windows で動いているとき true。ドライブ側のパスを解釈する前に、
+	// Git Bash が書き換えたパスと \ 区切りのパスを止める。
+	WindowsPaths bool
 	// 後のタスクで、各 usecase のフィールドを足していく
 }
 

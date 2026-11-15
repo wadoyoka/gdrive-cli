@@ -4,6 +4,7 @@ Claude Code や Codex には、この決まりをまとめたスキルを配っ�
 
 - **`--json` を付ける。** 成功したときは、標準出力に結果の JSON が1つだけ出る。失敗したときは、エラーの JSON（`{"error":{"kind":...,"message":...,"details":[...]}}`）が標準エラーに出る。upload、download、mkdir、mv が途中で失敗したときは、結果の JSON が標準出力に、エラーの JSON が標準エラーにと、両方に出る。結果は終了コードと JSON の両方で判断する。upload と download では、各項目の `error` が空でないものは、その処理が終わっていない。
 - エラーに原因（Drive API や通信のエラーなど）があれば、`details` の最後の要素に入る（`--json` なしでは、最後の補足の行に出る）。
+- **Windows の Claude Code（Git Bash）では、ドライブ側のパスの先頭を `//` にする。** Git Bash が `/videos` を `C:/Program Files/Git/videos` に書き換えるため（例: `gdrive-cli upload ./a.txt //videos`、`gdrive-cli ls -R //`）。書き換えられたパスや `\` 区切りのパスは、終了コード 2 で止まる。手元のパスはそのままでよい。`MSYS_NO_PATHCONV=1` は付けない。手元のパスの書き換えまで止まり、`~/out` が `C:\c\Users\...` のような別の場所として読まれて壊れるため。
 - **作業の前に `gdrive-cli status --json`** で、ログインできているかを確かめる。
 - **大きなアップロードはバックグラウンドで実行する。** AI エージェントには、コマンドの実行時間に上限があることが多い（Claude Code の Bash ツールは既定で 2 分、最大で 10 分）。Claude Code なら `run_in_background` を使う。途中で止められた場合、そのファイルは最初から送り直しになる（再開には対応していない）。止まったあとは、`upload --skip-existing` で同じコマンドをやり直す。
 - **`setup` と `login` は人が行う。** ブラウザでの操作が要り、標準入力も読むコマンドなので、エージェントには実行させない。`setup` は標準入力と標準エラーが端末でなければ、何もせずに終了コード 2 で止まる。さらに、本物の gcloud で GCP を変える（プロジェクトを作る）ので、なおさら人が行う。

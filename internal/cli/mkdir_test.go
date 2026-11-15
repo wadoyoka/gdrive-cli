@@ -62,3 +62,21 @@ func TestMkdirCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestMkdirCommandWindowsPaths(t *testing.T) {
+	t.Run("Windows の判定を効かせても //videos は /videos と同じ", func(t *testing.T) {
+		// Arrange
+		d, out, errb, _ := newDeps(t)
+		d = withPartial(d, "none")
+		d.WindowsPaths = true
+		initAndClear(t, d, out, errb)
+
+		// Act
+		code := Execute(context.Background(), d, []string{"mkdir", "//videos"})
+
+		// Assert
+		if want := "/videos\thttps://example.com/new-videos\n"; code != 0 || out.String() != want {
+			t.Errorf("code=%d out=%q err=%q", code, out.String(), errb.String())
+		}
+	})
+}

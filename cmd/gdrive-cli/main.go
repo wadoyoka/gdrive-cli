@@ -71,10 +71,11 @@ func run(ctx context.Context) int {
 			Status:  status,
 			OpenURL: browser.Open,
 		},
-		Interactive: term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
-		Stdin:       os.Stdin,
-		Stdout:      os.Stdout,
-		Stderr:      os.Stderr,
-		Progress:    term.IsTerminal(int(os.Stderr.Fd())),
+		WindowsPaths: onWindows,
+		Interactive:  term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
+		Stdin:        os.Stdin,
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
+		Progress:     term.IsTerminal(int(os.Stderr.Fd())),
 	}, os.Args[1:])
 }

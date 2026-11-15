@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase/transfer"
 )
 
@@ -16,9 +15,9 @@ func newUploadCommand(d Deps, asJSON *bool) *cobra.Command {
 		Short: "手元のファイルやフォルダをドライブへ送る",
 		Args:  usageArgs(cobra.MinimumNArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dest, err := domain.ParseRemotePath(args[len(args)-1])
+			dest, err := parseRemotePath(args[len(args)-1], d.WindowsPaths)
 			if err != nil {
-				return usageError(err)
+				return err
 			}
 			in := transfer.UploadInput{Sources: args[:len(args)-1], Dest: dest, Parents: parents, SkipExisting: skipExisting}
 			var progress *progressPrinter
