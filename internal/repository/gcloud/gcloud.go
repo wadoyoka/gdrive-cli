@@ -55,7 +55,7 @@ func allowedGCloud(args []string) bool {
 	}
 	validID := func(id string) bool { return gcp.ValidateProjectID(id) == nil }
 	switch {
-	case eq("auth", "list", "--filter=status:ACTIVE", "--format=value(account)"):
+	case eq("auth", "list", "--filter=status:ACTIVE", "--format=json"):
 		return true
 	case len(args) == 4 && eq("projects", "describe", args[2], "--format=json"):
 		return validID(args[2])
@@ -100,16 +100,20 @@ func containsAny(s string, subs ...string) bool {
 
 // ActiveAccount は、ログイン中のアカウントを返す。ログインしていなければ ""。
 func (g *GCloud) ActiveAccount(ctx context.Context) (string, error) {
-	out, _, err := g.run(ctx, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)")
+	out, _, err := g.run(ctx, "auth", "list", "--filter=status:ACTIVE", "--format=json")
 	if err != nil {
 		return "", err
 	}
-	for line := range strings.SplitSeq(out, "\n") {
-		if l := strings.TrimSpace(line); l != "" {
-			return l, nil
-		}
+	var accounts []struct {
+		Account string `json:"account"`
 	}
-	return "", nil
+	if jerr := json.Unmarshal([]byte(out), &accounts); jerr != nil {
+		return "", domain.Errorf(domain.KindUnexpected, "gcloud の出力を読めませんでした").Wrap(jerr)
+	}
+	if len(accounts) == 0 {
+		return "", nil
+	}
+	return accounts[0].Account, nil
 }
 
 // DescribeProject は、プロジェクトの有無と状態を返す。

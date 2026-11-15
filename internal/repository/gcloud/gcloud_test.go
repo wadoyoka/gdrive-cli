@@ -3,8 +3,12 @@ package gcloud
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,13 +16,61 @@ import (
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 )
 
-const fakeGCloudScript = `#!/bin/sh
-printf '%s\n' "$@" > "$FAKE_GCLOUD_ARGS"
-/bin/cat > "$FAKE_GCLOUD_STDIN"
-printf '%s' "$FAKE_GCLOUD_STDOUT"
-printf '%s' "$FAKE_GCLOUD_STDERR" >&2
-exit "${FAKE_GCLOUD_EXIT:-0}"
-`
+// 偽物の gcloud は、テストの実行ファイル自身。包みのファイル（sh か cmd.exe を通る）から呼ばれる。
+func TestMain(m *testing.M) {
+	if os.Getenv("GDRIVE_CLI_FAKE_GCLOUD") == "1" {
+		os.Exit(runFakeGCloud())
+	}
+	os.Exit(m.Run())
+}
+
+func runFakeGCloud() int {
+	args := strings.Join(os.Args[1:], "\n") + "\n"
+	if len(os.Args) == 1 {
+		args = "\n"
+	}
+	if err := os.WriteFile(os.Getenv("FAKE_GCLOUD_ARGS"), []byte(args), 0o600); err != nil { //nolint:gosec // テストが渡した出力先
+		return 70
+	}
+	in, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return 70
+	}
+	if err := os.WriteFile(os.Getenv("FAKE_GCLOUD_STDIN"), in, 0o600); err != nil { //nolint:gosec // テストが渡した出力先
+		return 70
+	}
+	_, _ = fmt.Fprint(os.Stdout, os.Getenv("FAKE_GCLOUD_STDOUT"))
+	_, _ = fmt.Fprint(os.Stderr, os.Getenv("FAKE_GCLOUD_STDERR"))
+	if v := os.Getenv("FAKE_GCLOUD_EXIT"); v != "" {
+		code, cerr := strconv.Atoi(v)
+		if cerr != nil {
+			return 70
+		}
+		return code
+	}
+	return 0
+}
+
+// writeGCloudWrapper は、偽物を呼ぶ包みのファイルを dir に置き、そのパスを返す。
+// 本物の gcloud と同じく、sh（Windows では cmd.exe）を通して引数が渡る。
+func writeGCloudWrapper(t *testing.T, dir string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_GCLOUD_HELPER", exe)
+	t.Setenv("GDRIVE_CLI_FAKE_GCLOUD", "1")
+	name, body, mode := "gcloud", "#!/bin/sh\nexec \"$FAKE_GCLOUD_HELPER\" \"$@\"\n", os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		name, body, mode = "gcloud.cmd", "@\"%FAKE_GCLOUD_HELPER%\" %*", 0o644
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 type fakeGCloud struct {
 	dir       string
@@ -29,16 +81,14 @@ type fakeGCloud struct {
 func newFakeGCloud(t *testing.T, stdout, stderr string, exit string) (*GCloud, *fakeGCloud) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "gcloud"), []byte(fakeGCloudScript), 0o755); err != nil { //nolint:gosec // テスト用の実行ファイル
-		t.Fatal(err)
-	}
+	bin := writeGCloudWrapper(t, dir)
 	f := &fakeGCloud{dir: dir, argsFile: filepath.Join(dir, "args.txt"), stdinFile: filepath.Join(dir, "stdin.txt")}
 	t.Setenv("FAKE_GCLOUD_ARGS", f.argsFile)
 	t.Setenv("FAKE_GCLOUD_STDIN", f.stdinFile)
 	t.Setenv("FAKE_GCLOUD_STDOUT", stdout)
 	t.Setenv("FAKE_GCLOUD_STDERR", stderr)
 	t.Setenv("FAKE_GCLOUD_EXIT", exit)
-	return &GCloud{Bin: filepath.Join(dir, "gcloud")}, f
+	return &GCloud{Bin: bin}, f
 }
 
 func (f *fakeGCloud) args(t *testing.T) []string {
@@ -53,16 +103,16 @@ func (f *fakeGCloud) args(t *testing.T) []string {
 func TestGCloud(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("アカウントを最初の行から読む", func(t *testing.T) {
+	t.Run("JSON の最初の account を返す", func(t *testing.T) {
 		// Arrange
-		g, f := newFakeGCloud(t, "\nme@example.com\nother@example.com\n", "", "0")
+		g, f := newFakeGCloud(t, `[{"account":"me@example.com","status":"ACTIVE"},{"account":"other@example.com","status":"ACTIVE"}]`, "", "0")
 		// Act
 		got, err := g.ActiveAccount(ctx)
 		// Assert
 		if err != nil || got != "me@example.com" {
 			t.Fatalf("got %q, %v", got, err)
 		}
-		want := []string{"auth", "list", "--filter=status:ACTIVE", "--format=value(account)", "--quiet"}
+		want := []string{"auth", "list", "--filter=status:ACTIVE", "--format=json", "--quiet"}
 		if a := f.args(t); strings.Join(a, "|") != strings.Join(want, "|") {
 			t.Errorf("args = %v, want %v", a, want)
 		}
@@ -70,12 +120,23 @@ func TestGCloud(t *testing.T) {
 
 	t.Run("ログインしていなければ空文字", func(t *testing.T) {
 		// Arrange
-		g, _ := newFakeGCloud(t, "", "", "0")
+		g, _ := newFakeGCloud(t, "[]", "", "0")
 		// Act
 		got, err := g.ActiveAccount(ctx)
 		// Assert
 		if err != nil || got != "" {
 			t.Fatalf("got %q, %v", got, err)
+		}
+	})
+
+	t.Run("JSON でなければエラー", func(t *testing.T) {
+		// Arrange
+		g, _ := newFakeGCloud(t, "me@example.com", "", "0")
+		// Act
+		_, err := g.ActiveAccount(ctx)
+		// Assert
+		if domain.KindOf(err) != domain.KindUnexpected || err == nil {
+			t.Fatalf("err = %v", err)
 		}
 	})
 
@@ -159,7 +220,7 @@ func TestGCloud(t *testing.T) {
 
 	t.Run("毎回 --quiet を付ける", func(t *testing.T) {
 		// Arrange
-		g, f := newFakeGCloud(t, "", "", "0")
+		g, f := newFakeGCloud(t, "[]", "", "0")
 		// Act
 		_, err := g.ActiveAccount(ctx)
 		// Assert
@@ -201,7 +262,7 @@ func TestGCloud(t *testing.T) {
 			{},
 		}
 		allow := [][]string{
-			{"auth", "list", "--filter=status:ACTIVE", "--format=value(account)"},
+			{"auth", "list", "--filter=status:ACTIVE", "--format=json"},
 			{"projects", "describe", "proj-abc123", "--format=json"},
 			{"projects", "create", "proj-abc123", "--name=gdrive-cli"},
 			{"services", "enable", "drive.googleapis.com", "--project=proj-abc123"},
@@ -229,8 +290,8 @@ func TestGCloud(t *testing.T) {
 
 	t.Run("Bin が空なら PATH から探す", func(t *testing.T) {
 		// Arrange
-		_, f := newFakeGCloud(t, "x@example.com\n", "", "0")
-		t.Setenv("PATH", f.dir+":"+os.Getenv("PATH"))
+		_, f := newFakeGCloud(t, `[{"account":"x@example.com"}]`, "", "0")
+		t.Setenv("PATH", f.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 		g := NewGCloud()
 		// Act
 		got, err := g.ActiveAccount(ctx)
@@ -260,6 +321,9 @@ func asDomainError(err error, target **domain.Error) bool {
 func TestGCloudキャンセル(t *testing.T) {
 	t.Run("孫プロセスが出力を握ったままでもキャンセルで返る", func(t *testing.T) {
 		// Arrange
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows では孫プロセスの作り方が違うので試さない")
+		}
 		dir := t.TempDir()
 		script := "#!/bin/sh\n/bin/sleep 20 &\n/bin/sleep 20\n"
 		bin := filepath.Join(dir, "gcloud")
