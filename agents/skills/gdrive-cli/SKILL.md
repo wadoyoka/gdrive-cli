@@ -76,7 +76,7 @@ gdrive-cli upload -p --json ./site ./intro.mp4 /archive/2026-11
 - **終了コード 6（あいまい）では推測で選ばない。** 同じフォルダに同じ名前が複数ある。エラーに出る候補の ID・更新日時・リンクを人に見せて判断を仰ぐ。
 - **終了コード 7（拒否リスト）では止まる。** 人が `policy.toml` でそのコマンドを禁じている。`policy.toml` を書き換えたり、別の手で回避したりしない。
 - **フォルダの作成は自動ではやり直されない。** フォルダの作成が失敗したら、`gdrive-cli mkdir -p <パス>` か `upload --skip-existing` でやり直す。
-- 鍵や設定ディレクトリ（`~/.config/gdrive-cli/`、Windows では `%LOCALAPPDATA%\gdrive-cli\` など）のファイル、`security` コマンドには触れない。
+- 鍵や設定ディレクトリ（`~/.config/gdrive-cli/`、Windows では `%LOCALAPPDATA%\gdrive-cli\` など）のファイル、`security` コマンドには触れない。Windows では `cmdkey` と資格情報マネージャーにも触れない（`cmdkey /delete` で鍵が消えると、JSON の取り込みからやり直しになる）。
 - 見えるのは gdrive-cli が作ったファイルとフォルダだけ。ブラウザやスマホから入れたファイルは、ルートフォルダの中にあっても見えない。
   「見つからない」（終了コード 4）ときは、それが原因のこともあると人に伝える。
 

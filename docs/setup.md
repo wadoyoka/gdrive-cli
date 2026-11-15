@@ -137,6 +137,6 @@ security delete-generic-password -s gdrive-cli -a <設定ディレクトリの�
 Windows の例（PowerShell）。
 
 ```powershell
-Remove-Item -Recurse <設定ディレクトリの絶対パス>
-cmdkey /delete:gdrive-cli:<設定ディレクトリの絶対パス>
+Remove-Item -Recurse -LiteralPath "<設定ディレクトリ>"
+cmdkey "/delete:gdrive-cli:<設定ディレクトリの絶対パス>"
 ```

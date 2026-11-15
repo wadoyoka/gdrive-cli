@@ -29,7 +29,7 @@ make test           # go test ./...
 GDRIVE_CLI_E2E=1 go test ./internal/repository/driveapi/ -run TestE2E -v
 ```
 
-macOS では、`go test` の実行ファイルに hardened runtime が付かないので、E2E テストは OS のキーチェーンを使えない。普段の設定ディレクトリとは別のディレクトリで、`GDRIVE_CLI_KEYRING=file` を指定してログインしてから動かす。
+macOS では、`go test` の実行ファイルに hardened runtime が付かないので、E2E テストは OS のキーチェーンを使えない。Windows では、本物の資格情報マネージャーに項目を作らないために、同じく `GDRIVE_CLI_KEYRING=file` を求める（PowerShell なら `$env:GDRIVE_CLI_KEYRING = "file"`）。普段の設定ディレクトリとは別のディレクトリで、`GDRIVE_CLI_KEYRING=file` を指定してログインしてから動かす。
 
 ```bash
 export GDRIVE_CLI_CONFIG_DIR="$HOME/.config/gdrive-cli-e2e" GDRIVE_CLI_KEYRING=file

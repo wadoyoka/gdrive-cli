@@ -47,4 +47,4 @@ README の手順で入れる（PowerShell で `scoop install git go make`、clon
 - 動いている `gdrive-cli.exe` は上書きできない。`make install` が失敗したら、動いている gdrive-cli（別の端末や AI エージェントのものを含む）を止めてから、やり直す。
 - PowerShell で gdrive-cli の出力を変数や別のコマンドに渡したときに日本語が化けたら、先に `[Console]::OutputEncoding = [Text.Encoding]::UTF8` を実行する。
 - `make help` の表示が化けたら、先に `chcp 65001` を実行する。
-- Git Bash から使うときのドライブ側のパスの書き方は [ai-agents.md](ai-agents.md) を参照。
+- Git Bash から使うときのドライブ側のパスの書き方は [commands.md](commands.md)（冒頭のドライブ側のパスの説明）を参照。
