@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Write は、同じディレクトリの一時ファイルに書いてから名前を変える。
@@ -29,8 +30,23 @@ func Write(path string, data []byte, perm os.FileMode) (err error) {
 	if err = tmp.Close(); err != nil {
 		return fmt.Errorf("閉じられません: %w", err)
 	}
-	if err = os.Rename(tmp.Name(), path); err != nil {
+	if err = replaceFile(tmp.Name(), path); err != nil {
 		return fmt.Errorf("名前を変えられません: %w", err)
 	}
 	return nil
+}
+
+// renameRetrying は、rename が transient な失敗を返す間、wait おきに最大 attempts 回まで呼ぶ。
+// 最後の失敗を返す。transient でない失敗はすぐ返す。
+func renameRetrying(rename func(oldpath, newpath string) error, transient func(error) bool, oldpath, newpath string, attempts int, wait time.Duration) error {
+	var err error
+	for i := range attempts {
+		if i > 0 {
+			time.Sleep(wait)
+		}
+		if err = rename(oldpath, newpath); err == nil || !transient(err) {
+			return err
+		}
+	}
+	return err
 }
