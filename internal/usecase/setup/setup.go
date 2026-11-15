@@ -14,6 +14,7 @@ import (
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
 	"github.com/wadoyoka/gdrive-cli/internal/domain/gcp"
+	"github.com/wadoyoka/gdrive-cli/internal/domain/winpath"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
 )
@@ -37,6 +38,7 @@ type Setup struct {
 	OpenURL      func(url string) error
 	Wait         func(ctx context.Context, d time.Duration) error // nil なら ctx を見ながら time.After で待つ
 	RandomSuffix func() (string, error)                           // nil なら crypto/rand で小文字英数字 6 文字
+	Windows      bool                                             // true なら、入力欄のパスで \ を外さず、/c/ の形を C:/ に直す
 }
 
 // Input は、setup の入力。
@@ -361,7 +363,7 @@ func (u Setup) importClientSecret(id string, in Input) error {
 			if err != nil {
 				return err
 			}
-			if path, err = normalizeInputPath(ans); err != nil {
+			if path, err = normalizeInputPath(ans, u.Windows); err != nil {
 				say("%s", err.Error())
 				continue
 			}
@@ -397,7 +399,8 @@ func (u Setup) importClientSecret(id string, in Input) error {
 // normalizeInputPath は、人が打った（またはドラッグした）パスを整える。
 // 前後の空白と両端の ' か " を1組取り除く。引用符で囲まれていなければ、`\` の後ろの1文字をそのまま残す
 // （`x\ \(1\).json` → `x (1).json`）。先頭の `~/` はホームに展開する。
-func normalizeInputPath(s string) (string, error) {
+// windows のときは、`\` を外さず、`/c/...` の形を `C:/...` に直し、`~\` も `~/` と同じくホームに展開する。
+func normalizeInputPath(s string, windows bool) (string, error) {
 	s = strings.TrimSpace(s)
 	quoted := false
 	if len(s) >= 2 && (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
@@ -405,7 +408,14 @@ func normalizeInputPath(s string) (string, error) {
 		quoted = true
 	}
 	rest, tilde := strings.CutPrefix(s, "~/")
-	if !quoted {
+	if !tilde && windows {
+		rest, tilde = strings.CutPrefix(s, `~\`)
+	}
+	if windows {
+		if !tilde {
+			rest = winpath.FromMSYS(rest)
+		}
+	} else if !quoted {
 		rest = unescapeBackslashes(rest)
 	}
 	if !tilde {

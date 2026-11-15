@@ -70,6 +70,7 @@ func run(ctx context.Context) int {
 			Login:   login,
 			Status:  status,
 			OpenURL: browser.Open,
+			Windows: onWindows,
 		},
 		WindowsPaths: onWindows,
 		Interactive:  term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1003,7 +1004,7 @@ func TestNormalizeInputPath(t *testing.T) {
 		}
 		for in, want := range cases {
 			// Act
-			got, err := normalizeInputPath(in)
+			got, err := normalizeInputPath(in, false)
 
 			// Assert
 			if err != nil || got != want {
@@ -1028,7 +1029,29 @@ func TestNormalizeInputPath(t *testing.T) {
 		}
 		for in, want := range cases {
 			// Act
-			got, err := normalizeInputPath(in)
+			got, err := normalizeInputPath(in, false)
+
+			// Assert
+			if err != nil || got != want {
+				t.Errorf("%q: got %q, %v; want %q", in, got, err, want)
+			}
+		}
+	})
+	t.Run("Windows では \\ を外さず、/c/ の形を C:/ に直し、~\\ をホームにする", func(t *testing.T) {
+		// Arrange
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		cases := map[string]string{
+			`C:\Users\me\x.json`:     `C:\Users\me\x.json`,
+			`"C:\Users\me\a b.json"`: `C:\Users\me\a b.json`,
+			`/c/Users/me/x.json`:     `C:/Users/me/x.json`,
+			`~\x.json`:               filepath.Join(home, "x.json"),
+			`~/x.json`:               filepath.Join(home, "x.json"),
+		}
+		for in, want := range cases {
+			// Act
+			got, err := normalizeInputPath(in, true)
 
 			// Assert
 			if err != nil || got != want {
