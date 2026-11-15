@@ -104,6 +104,9 @@ func (g *GCloud) ActiveAccount(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(out) == "" {
+		return "", nil
+	}
 	var accounts []struct {
 		Account string `json:"account"`
 	}

@@ -37,10 +37,10 @@ func Write(path string, data []byte, perm os.FileMode) (err error) {
 }
 
 // renameRetrying は、rename が transient な失敗を返す間、wait おきに最大 attempts 回まで呼ぶ。
-// 最後の失敗を返す。transient でない失敗はすぐ返す。
+// 最後の失敗を返す。transient でない失敗はすぐ返す。attempts が 1 未満でも、少なくとも 1 回は呼ぶ。
 func renameRetrying(rename func(oldpath, newpath string) error, transient func(error) bool, oldpath, newpath string, attempts int, wait time.Duration) error {
 	var err error
-	for i := range attempts {
+	for i := range max(attempts, 1) {
 		if i > 0 {
 			time.Sleep(wait)
 		}

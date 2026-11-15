@@ -142,6 +142,17 @@ func TestGCloud(t *testing.T) {
 		}
 	})
 
+	t.Run("出力が空や空白だけならログインしていない（空文字）", func(t *testing.T) {
+		// Arrange
+		g, _ := newFakeGCloud(t, "  \n", "", "0")
+		// Act
+		got, err := g.ActiveAccount(ctx)
+		// Assert
+		if err != nil || got != "" {
+			t.Fatalf("got %q, %v", got, err)
+		}
+	})
+
 	t.Run("JSON でなければエラー", func(t *testing.T) {
 		// Arrange
 		g, _ := newFakeGCloud(t, "me@example.com", "", "0")

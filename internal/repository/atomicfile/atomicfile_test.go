@@ -3,6 +3,7 @@ package atomicfile
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestRenameRetrying(t *testing.T) {
@@ -46,6 +47,26 @@ func TestRenameRetrying(t *testing.T) {
 		// Assert
 		if !errors.Is(err, errOther) {
 			t.Errorf("err = %v, want %v", err, errOther)
+		}
+		if calls != 1 {
+			t.Errorf("calls = %d, want 1", calls)
+		}
+	})
+
+	t.Run("回数が 0 でも rename を 1 回は呼び、その結果を返す", func(t *testing.T) {
+		// Arrange
+		calls := 0
+		rename := func(_, _ string) error {
+			calls++
+			return errTransient
+		}
+
+		// Act
+		err := renameRetrying(rename, isTransient, "from", "to", 0, time.Millisecond)
+
+		// Assert
+		if !errors.Is(err, errTransient) {
+			t.Errorf("err = %v, want %v", err, errTransient)
 		}
 		if calls != 1 {
 			t.Errorf("calls = %d, want 1", calls)

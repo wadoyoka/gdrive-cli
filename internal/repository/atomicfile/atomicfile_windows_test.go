@@ -28,8 +28,8 @@ func TestWriteWindows(t *testing.T) {
 		done := make(chan result, 1)
 
 		// Act
-		start := time.Now()
 		go func() {
+			start := time.Now()
 			err := Write(path, []byte("second"), 0o600)
 			done <- result{err: err, elapsed: time.Since(start)}
 		}()
