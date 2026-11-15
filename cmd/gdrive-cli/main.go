@@ -9,14 +9,13 @@ import (
 	"runtime"
 	"syscall"
 
-	"golang.org/x/term"
-
 	"github.com/wadoyoka/gdrive-cli/internal/cli"
 	"github.com/wadoyoka/gdrive-cli/internal/repository/auth"
 	"github.com/wadoyoka/gdrive-cli/internal/repository/browser"
 	"github.com/wadoyoka/gdrive-cli/internal/repository/config"
 	"github.com/wadoyoka/gdrive-cli/internal/repository/driveapi"
 	"github.com/wadoyoka/gdrive-cli/internal/repository/gcloud"
+	"github.com/wadoyoka/gdrive-cli/internal/repository/terminal"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase/account"
 	"github.com/wadoyoka/gdrive-cli/internal/usecase/remotefs"
@@ -73,10 +72,10 @@ func run(ctx context.Context) int {
 			Windows: onWindows,
 		},
 		WindowsPaths: onWindows,
-		Interactive:  term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd())),
+		Interactive:  terminal.IsTerminal(os.Stdin) && terminal.IsTerminal(os.Stderr),
 		Stdin:        os.Stdin,
 		Stdout:       os.Stdout,
 		Stderr:       os.Stderr,
-		Progress:     term.IsTerminal(int(os.Stderr.Fd())),
+		Progress:     terminal.IsTerminal(os.Stderr) && terminal.EnableVT(os.Stderr),
 	}, os.Args[1:])
 }
