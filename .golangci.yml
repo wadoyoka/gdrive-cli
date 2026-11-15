@@ -78,6 +78,15 @@ linters:
           deny:
             - pkg: os/exec
               desc: 外部コマンドの実行は repository の中だけで行います。ほかの層から呼ぶときは repository を通してください。
+        os-api-only-in-repository:
+          files:
+            - "**/*.go"
+            - "!**/internal/repository/**"
+          deny:
+            - pkg: golang.org/x/sys/windows
+              desc: Windows の API は repository の中だけで使います。
+            - pkg: golang.org/x/term
+              desc: 端末の判定は repository の中だけで行います。ほかの層から呼ぶときは repository を通してください。
   exclusions:
     paths:
       - ^trash/
