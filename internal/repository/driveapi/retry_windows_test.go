@@ -18,6 +18,7 @@ func TestIsRetryableWindows(t *testing.T) {
 	}{
 		{"接続のリセット（WSAECONNRESET）", syscall.WSAECONNRESET, true},
 		{"接続の中止（WSAECONNABORTED）", syscall.WSAECONNABORTED, true},
+		{"ネットワーク名の消失（ERROR_NETNAME_DELETED）", syscall.Errno(64), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

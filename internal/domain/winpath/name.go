@@ -5,7 +5,7 @@ import "strings"
 
 // reserved は、Windows が予約している名前（大文字）。
 var reserved = map[string]bool{
-	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"CON": true, "CONIN$": true, "CONOUT$": true, "PRN": true, "AUX": true, "NUL": true,
 	"COM0": true, "COM1": true, "COM2": true, "COM3": true, "COM4": true,
 	"COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
 	"LPT0": true, "LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,

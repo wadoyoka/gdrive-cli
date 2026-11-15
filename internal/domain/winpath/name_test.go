@@ -24,6 +24,8 @@ func TestUnsafeName(t *testing.T) {
 		{"複数の拡張子つきの Nul", "Nul.tar.gz", true},
 		{"PRN", "PRN", true},
 		{"AUX", "AUX", true},
+		{"CONIN$", "CONIN$", true},
+		{"拡張子つきの conout$", "conout$.txt", true},
 		{"COM0", "COM0", true},
 		{"COM9", "COM9", true},
 		{"LPT1", "LPT1", true},
