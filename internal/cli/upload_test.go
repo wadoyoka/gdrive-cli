@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -173,6 +174,9 @@ func TestUploadCommand(t *testing.T) {
 		a := localFile(t, "a.mp4", "a")
 		link := filepath.Join(t.TempDir(), "link.mp4")
 		if err := os.Symlink(a, link); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("シンボリックリンクを作れない（Windows で権限がない）")
+			}
 			t.Fatal(err)
 		}
 

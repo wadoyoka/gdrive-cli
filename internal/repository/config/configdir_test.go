@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -24,9 +25,14 @@ func TestConfigDir(t *testing.T) {
 		if !first || second {
 			t.Errorf("created: first=%v second=%v", first, second)
 		}
-		if info.Mode().Perm() != 0o700 {
-			t.Errorf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0700", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o700 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 		if d.Path() != path {
 			t.Errorf("Path = %q", d.Path())
 		}
@@ -37,6 +43,7 @@ func TestDefaultDir(t *testing.T) {
 	t.Run("GDRIVE_CLI_CONFIG_DIR があれば HOME がなくても決まる", func(t *testing.T) {
 		// Arrange
 		t.Setenv("HOME", "")
+		t.Setenv("USERPROFILE", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
 		t.Setenv("GDRIVE_CLI_CONFIG_DIR", filepath.Join("tmp", "gdrive-cli-test"))
 
@@ -52,6 +59,7 @@ func TestDefaultDir(t *testing.T) {
 	t.Run("XDG_CONFIG_HOME があれば HOME がなくても決まる", func(t *testing.T) {
 		// Arrange
 		t.Setenv("HOME", "")
+		t.Setenv("USERPROFILE", "")
 		t.Setenv("XDG_CONFIG_HOME", filepath.Join("tmp", "xdg"))
 		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
 
@@ -67,6 +75,7 @@ func TestDefaultDir(t *testing.T) {
 	t.Run("どれもなく HOME もなければエラー", func(t *testing.T) {
 		// Arrange
 		t.Setenv("HOME", "")
+		t.Setenv("USERPROFILE", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
 		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
 

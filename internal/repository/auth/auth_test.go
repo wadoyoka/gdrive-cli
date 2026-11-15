@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -293,9 +294,14 @@ func TestAuthLogin(t *testing.T) {
 		if statErr != nil {
 			t.Fatal(statErr)
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0600", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 		if body := readToken(t, a); !strings.Contains(body, "r1") {
 			t.Errorf("token = %s", body)
 		}
@@ -602,9 +608,14 @@ func TestAuthImportClientSecret(t *testing.T) {
 		if statErr != nil {
 			t.Fatal(statErr)
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0600", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 		body, _ := os.ReadFile(dst) //nolint:gosec // テストの一時ファイル
 		plain, openErr := openSecret(testKey(t, a), secretKindClientSecret, body)
 		if openErr != nil || string(plain) != testClientSecret {

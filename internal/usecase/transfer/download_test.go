@@ -76,9 +76,14 @@ func TestDownload(t *testing.T) {
 		if len(res.Items) != 1 || res.Items[0] != want {
 			t.Errorf("items=%+v", res.Items)
 		}
-		if info, _ := os.Stat(filepath.Join(dir, "a.mp4")); info.Mode().Perm() != 0o644 {
-			t.Errorf("mode=%v", info.Mode())
-		}
+		t.Run("権限は 0644", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info, _ := os.Stat(filepath.Join(dir, "a.mp4")); info.Mode().Perm() != 0o644 {
+				t.Errorf("mode=%v", info.Mode())
+			}
+		})
 	})
 
 	t.Run("フォルダの木をそのまま作る", func(t *testing.T) {
@@ -376,6 +381,9 @@ func TestDownload(t *testing.T) {
 		outside := filepath.Join(t.TempDir(), "target")
 		writeLocal(t, outside, "keep")
 		if err := os.Symlink(outside, filepath.Join(dir, "a.txt")); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("シンボリックリンクを作れない（Windows で権限がない）")
+			}
 			t.Fatal(err)
 		}
 		u := Download{Remote: usecasetest.NewRemote(d)}

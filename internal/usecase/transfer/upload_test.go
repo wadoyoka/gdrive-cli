@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -380,9 +381,15 @@ func TestUpload(t *testing.T) {
 		inner := filepath.Join(src, "link.mp4")
 		top := filepath.Join(dir, "toplink")
 		if err := os.Symlink("a.mp4", inner); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("シンボリックリンクを作れない（Windows で権限がない）")
+			}
 			t.Fatal(err)
 		}
 		if err := os.Symlink(src, top); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("シンボリックリンクを作れない（Windows で権限がない）")
+			}
 			t.Fatal(err)
 		}
 		u := Upload{Remote: usecasetest.NewRemote(d)}

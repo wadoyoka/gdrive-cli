@@ -536,17 +536,20 @@ func TestSetup(t *testing.T) {
 
 	t.Run("パスの引用符と ~ を扱う", func(t *testing.T) {
 		// Arrange
-		t.Setenv("HOME", "/home/u")
+		home := "/home/u"
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		want := filepath.Join(home, "a b.json")
 		for _, answer := range []string{`'~/a b.json'`, `~/a\ b.json`, `"~/a b.json"`, `  ~/a\ b.json  `} {
 			f := newSetupFixture(t)
-			f.auth.SecretProjects["/home/u/a b.json"] = defaultSetupID
+			f.auth.SecretProjects[want] = defaultSetupID
 			f.ask.answers = []askAnswer{{val: answer}}
 
 			// Act
 			_, err := f.u.Run(context.Background(), f.input(defaultSetupID, ""))
 
 			// Assert
-			if err != nil || f.auth.Imported != "/home/u/a b.json" {
+			if err != nil || f.auth.Imported != want {
 				t.Errorf("%q: err=%v imported=%q", answer, err, f.auth.Imported)
 			}
 		}
@@ -989,14 +992,16 @@ func TestSetupDeadToken(t *testing.T) {
 func TestNormalizeInputPath(t *testing.T) {
 	t.Run("前後の空白と引用符を外し、バックスラッシュ付きの空白を戻し、~ を展開する", func(t *testing.T) {
 		// Arrange
-		t.Setenv("HOME", "/home/u")
+		home := "/home/u"
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 		cases := map[string]string{
 			`  /a/b.json  `:   "/a/b.json",
 			`'/a/b c.json'`:   "/a/b c.json",
 			`"/a/b c.json"`:   "/a/b c.json",
 			`/a/b\ c.json`:    "/a/b c.json",
-			`~/x.json`:        "/home/u/x.json",
-			`'~/x y.json'`:    "/home/u/x y.json",
+			`~/x.json`:        filepath.Join(home, "x.json"),
+			`'~/x y.json'`:    filepath.Join(home, "x y.json"),
 			`~user/x.json`:    "~user/x.json",
 			``:                "",
 			`'`:               "'",
@@ -1015,12 +1020,14 @@ func TestNormalizeInputPath(t *testing.T) {
 
 	t.Run("引用符の外では、バックスラッシュの後ろの1文字をそのまま残す", func(t *testing.T) {
 		// Arrange
-		t.Setenv("HOME", "/home/u")
+		home := "/home/u"
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 		cases := map[string]string{
 			`x\ \(1\).json`:         "x (1).json",
 			`/a/b\ \[x\]\&\'y.json`: "/a/b [x]&'y.json",
 			`/a/b\\c.json`:          `/a/b\c.json`,
-			`~/a\ \(1\).json`:       "/home/u/a (1).json",
+			`~/a\ \(1\).json`:       filepath.Join(home, "a (1).json"),
 			`\~/x.json`:             "~/x.json",
 			`/a/b\`:                 `/a/b\`,
 			`/a/\日本.json`:           "/a/日本.json",

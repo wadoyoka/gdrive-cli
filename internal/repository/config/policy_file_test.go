@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -34,9 +35,14 @@ func TestPolicyFile(t *testing.T) {
 		if !first || second {
 			t.Errorf("created: first=%v second=%v", first, second)
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0600", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 		if string(body) != `deny = ["mv"]` {
 			t.Errorf("body = %q", body)
 		}

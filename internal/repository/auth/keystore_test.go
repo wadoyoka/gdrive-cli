@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -135,9 +136,14 @@ func TestKeyStore(t *testing.T) {
 		if saveErr != nil || err != nil || statErr != nil || !found || string(got.Key) != string(k) {
 			t.Fatalf("save=%v err=%v stat=%v found=%v", saveErr, err, statErr, found)
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Fatalf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0600", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 	})
 
 	t.Run("file: 中身が壊れていれば KindSetup で、ファイルは書き換わらない", func(t *testing.T) {

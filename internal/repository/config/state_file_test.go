@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -23,9 +24,14 @@ func TestStateFile(t *testing.T) {
 		if got != "root-1" {
 			t.Errorf("got = %q", got)
 		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("perm = %v", info.Mode().Perm())
-		}
+		t.Run("権限は 0600", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("Windows ではファイルの権限の数字が効かない")
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("perm = %v", info.Mode().Perm())
+			}
+		})
 	})
 
 	t.Run("ファイルがなければ空文字", func(t *testing.T) {
