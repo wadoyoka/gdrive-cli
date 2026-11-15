@@ -1006,6 +1006,7 @@ func TestNormalizeInputPath(t *testing.T) {
 			``:                "",
 			`'`:               "'",
 			`relative/x.json`: "relative/x.json",
+			`/c/x`:            "/c/x", // MSYS の形の書き換えは Windows だけ
 		}
 		for in, want := range cases {
 			// Act

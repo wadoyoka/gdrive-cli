@@ -105,8 +105,8 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("DefaultDir: %v", err)
 	}
 	// go test の実行ファイルには hardened runtime が付かないので、macOS では OS のキーチェーンを使えない（設計書 6.3）。
-	if runtime.GOOS == "darwin" && os.Getenv("GDRIVE_CLI_KEYRING") != "file" {
-		t.Fatal("macOS の E2E テストは、GDRIVE_CLI_KEYRING=file と別の設定ディレクトリで動かしてください（docs/development.md の「E2E テスト」）")
+	if (runtime.GOOS == "darwin" || runtime.GOOS == "windows") && os.Getenv("GDRIVE_CLI_KEYRING") != "file" {
+		t.Fatal("macOS と Windows の E2E テストは、GDRIVE_CLI_KEYRING=file と別の設定ディレクトリで動かしてください（docs/development.md の「E2E テスト」）")
 	}
 	keys := auth.NewKeyStore(dir, os.Getenv("GDRIVE_CLI_KEYRING"))
 	authn := auth.NewAuth(dir, keys, config.NewLockFile(dir).Lock)
