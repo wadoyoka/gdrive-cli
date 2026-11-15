@@ -33,4 +33,24 @@ func TestLockFile(t *testing.T) {
 		}
 		second()
 	})
+
+	t.Run("同じ LockFile の値でも、持っている間は2つ目を取れない", func(t *testing.T) {
+		// Arrange
+		lock := NewLockFile(t.TempDir())
+		first, err := lock.Lock(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer first()
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+
+		// Act
+		_, errBusy := lock.Lock(ctx)
+
+		// Assert
+		if errBusy == nil || domain.KindOf(errBusy) != domain.KindUnexpected {
+			t.Errorf("errBusy = %v", errBusy)
+		}
+	})
 }

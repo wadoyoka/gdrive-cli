@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain"
@@ -13,7 +12,7 @@ import (
 
 const lockPollInterval = 100 * time.Millisecond
 
-// LockFile は、設定ディレクトリの lock。flock で、ほかの gdrive-cli と排他にする。
+// LockFile は、設定ディレクトリの lock。OS のファイルロックで、ほかの gdrive-cli と排他にする。
 type LockFile struct {
 	path string
 }
@@ -30,16 +29,16 @@ func (l *LockFile) Lock(ctx context.Context) (func(), error) {
 		return nil, fmt.Errorf("ロックファイルを開けません: %w", err)
 	}
 	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			return func() {
-				_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-				_ = f.Close()
-			}, nil
-		}
-		if err != syscall.EWOULDBLOCK && err != syscall.EINTR {
+		locked, err := tryLock(f)
+		if err != nil {
 			_ = f.Close()
 			return nil, fmt.Errorf("ロックを取れません: %w", err)
+		}
+		if locked {
+			return func() {
+				unlock(f)
+				_ = f.Close()
+			}, nil
 		}
 		select {
 		case <-ctx.Done():
