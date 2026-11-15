@@ -24,6 +24,7 @@ Google Drive を操作する Go 製の CLI。設計は `docs/superpowers/specs/`
 - 形式は `type: :emoji: 件名`（件名は日本語）。type と絵文字の対応は `commitlint.config.mjs` に従う。
 - Claude のセッションの URL（`Claude-Session:` の行など）は入れない（commitlint の `no-claude-session-url` が落とす）。
 - `--no-verify` は使わない。
+- main に入ると semantic-release がコミットの type で次の版を決める（feat はマイナー、fix・perf・revert はパッチ、ほかはリリースしない。`docs/ci.md`）。振る舞いの変わらない変更に feat や fix を使わない。
 
 ## gcloud
 

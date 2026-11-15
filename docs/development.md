@@ -18,7 +18,8 @@ make test           # go test ./...
 - 層は cli、usecase、domain、repository の4つ。依存の向きは `internal/archtest` と golangci-lint の depguard が確かめる。削除と共有の API を本体のコードから呼べないことも、archtest が機械的に確かめている。
 - タスクの管理には bd（beads）をステルスモードで使う（`bd ready`、`bd create`、`bd update <id> --status in_progress`、`bd close <id>`）。`.beads/` は git に入らない。
 - 試し用のファイルは `rm` ではなく、`trash/` へ `mv` で片付ける。
-- CI は commitlint、golangci-lint、`go test`、trivy を走らせる。
+- CI は commitlint、golangci-lint、`go test`、trivy を走らせる。毎日の trivy、Renovate による依存の更新、semantic-release によるリリースは [ci.md](ci.md) にある。
+- main に入ると、コミットの type で次の版が決まる（feat はマイナー、fix・perf・revert はパッチ、ほかはリリースしない）。
 - AI エージェント向けのスキルは `agents/` にある（[agents/README.md](../agents/README.md)）。
 
 ## E2E テスト

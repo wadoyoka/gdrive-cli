@@ -146,6 +146,7 @@ gdrive-cli ls -l /videos/2026-11                     # 送ったものを確か�
 | SSH で Mac に入って、切れたログインを更新する | [docs/faqs/ssh-relogin.md](docs/faqs/ssh-relogin.md) |
 | 既知の制約、作らないもの | [docs/limitations.md](docs/limitations.md) |
 | 開発 | [docs/development.md](docs/development.md) |
+| CI、依存の更新（Renovate）、脆弱性の検査（trivy）、リリース | [docs/ci.md](docs/ci.md) |
 
 ## AI エージェント用のスキル
 
