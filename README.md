@@ -18,7 +18,7 @@ Claude Code などの AI が作った HTML や動画（数百 MB 以上のもの
 - **できる操作を絞る。** 削除、ゴミ箱への移動、共有設定の変更、同期は持たない。ドライブ上のファイルの上書きもない。
 - 操作の対象は、マイドライブ直下の専用ルートフォルダ（既定の名前は `gdrive-cli`）の下だけ。
 
-必要なもの: 個人の Google アカウント（Workspace ではない）、ブラウザ、Go 1.27.3 以上。macOS を主に想定している（Linux でも動く）。macOS では Xcode Command Line Tools も要る。詳しくは [docs/install.md](docs/install.md)。
+必要なもの: 個人の Google アカウント（Workspace ではない）、ブラウザ、Go 1.27.3 以上。macOS を主に想定している（Linux、Windows 10・11 でも動く）。macOS では Xcode Command Line Tools も要る。詳しくは [docs/install.md](docs/install.md)。
 
 ## gcloud のインストール
 
@@ -29,6 +29,15 @@ macOS（Homebrew）:
 ```bash
 brew install --cask gcloud-cli
 ```
+
+Windows（PowerShell。[Scoop](https://scoop.sh/) を使う）:
+
+```powershell
+scoop bucket add extras
+scoop install gcloud
+```
+
+Scoop を使わないときは、公式のインストーラー（https://cloud.google.com/sdk/docs/install ）で入れる。
 
 Linux（ほかの入れ方は公式のページ: https://cloud.google.com/sdk/docs/install ）:
 
@@ -62,6 +71,18 @@ Linux:
 ```bash
 go install github.com/wadoyoka/gdrive-cli/cmd/gdrive-cli@latest
 ```
+
+Windows: PowerShell で、Scoop で git・go・make を入れてから、`make install` を実行する。`%USERPROFILE%\.local\bin\gdrive-cli.exe` に入る。make は PowerShell、cmd、Git Bash のどこから実行してもよい。
+
+```powershell
+scoop install git go make
+git clone https://github.com/wadoyoka/gdrive-cli.git
+cd gdrive-cli
+make install
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.local\bin", "User")
+```
+
+最後の行は、PATH に `%USERPROFILE%\.local\bin` を足す（1回だけ）。足したら、端末を開き直す。
 
 前の版から入れ替えるときの注意などは [docs/install.md](docs/install.md)。
 

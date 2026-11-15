@@ -8,8 +8,9 @@
 - Google アカウント（個人のもの。Workspace ではない）
 - gcloud CLI（`gdrive-cli setup` が GCP のプロジェクトを作るために使う。手作業で設定する場合は不要）
 - ブラウザ（`login` のため。ない環境は [headless.md](headless.md) を参照）
-- macOS を主に想定している。Linux でも動く。トークンの暗号化の鍵は OS のキーチェーンに置く（キーチェーンのない環境は [setup.md](setup.md#鍵の置き場所) を参照）。
+- macOS を主に想定している。Linux、Windows 10・11 でも動く。トークンの暗号化の鍵は OS のキーチェーンに置く（キーチェーンのない環境は [setup.md](setup.md#鍵の置き場所) を参照。Windows は資格情報マネージャー）。
 - macOS では Xcode Command Line Tools（cgo と `codesign` のため）。
+- Windows では git、go、make（Scoop で入れられる。[README](../README.md#gdrive-cli-のインストール)）。
 
 ## macOS
 
@@ -38,3 +39,12 @@ go install github.com/wadoyoka/gdrive-cli/cmd/gdrive-cli@latest
 ```
 
 `$(go env GOPATH)/bin` が PATH に入っていることを確かめる。鍵は Secret Service に置く。Secret Service のない環境では `GDRIVE_CLI_KEYRING=file` を使う（[setup.md](setup.md#鍵の置き場所)）。
+
+## Windows
+
+README の手順で入れる（PowerShell で `scoop install git go make`、clone、`make install`、PATH に `%USERPROFILE%\.local\bin` を足す）。`make install` は `go build` だけで `%USERPROFILE%\.local\bin\gdrive-cli.exe` に入れる（`make install BINDIR=...` で入れ先を変えられる）。make は PowerShell、cmd、Git Bash のどこから実行してもよい。
+
+- 動いている `gdrive-cli.exe` は上書きできない。`make install` が失敗したら、動いている gdrive-cli（別の端末や AI エージェントのものを含む）を止めてから、やり直す。
+- PowerShell で gdrive-cli の出力を変数や別のコマンドに渡したときに日本語が化けたら、先に `[Console]::OutputEncoding = [Text.Encoding]::UTF8` を実行する。
+- `make help` の表示が化けたら、先に `chcp 65001` を実行する。
+- Git Bash から使うときのドライブ側のパスの書き方は [ai-agents.md](ai-agents.md) を参照。

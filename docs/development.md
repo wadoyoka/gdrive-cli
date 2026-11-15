@@ -10,6 +10,8 @@ make test           # go test ./...
 ```
 
 - macOS では、`make build` で作る（`go build` のままでは hardened runtime が付かず、キーチェーンを使えない）。ソースを変えてビルドし直すと、最初の実行でダイアログが出る（同じソースから作り直しただけなら、中身が同じなので出ない）。`make install` は、`~/.local/bin` に入れるときに使う。
+- Windows では、`make build` と `make install` は `go build` だけで動く（hardened runtime は macOS だけ）。`make install` は `%USERPROFILE%\.local\bin` に入れる。
+- macOS から Windows 向けのコンパイルを確かめるには、`GOOS=windows go build ./...` と `GOOS=windows go vet ./...` を実行する。Windows の上でのテストは、GitHub の Actions の画面で ci を「Run workflow」で起動する（または `gh workflow run ci.yml --ref <ブランチ>`）。手で起動したときだけ動く。
 - ツールの版は `.mise.toml` に固定してある（go、golangci-lint、trivy、lefthook、node、pnpm）。CI も同じ版を使う。
 - コミット時は lefthook が、gofmt、golangci-lint、go test、trivy（secret と vuln）、commitlint を走らせる。
 - コミットメッセージの形式は `type: :emoji: 件名`（件名は日本語）。type と絵文字の対応は `commitlint.config.mjs` に従う。`--no-verify` は使わない。

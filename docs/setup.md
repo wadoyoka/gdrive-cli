@@ -119,10 +119,11 @@ Windows では `XDG_CONFIG_HOME` を見ない。見ると、Git Bash と PowerSh
 
 | `GDRIVE_CLI_KEYRING` | 鍵の置き場所 |
 |---|---|
-| 未設定、空、`os` | OS のキーチェーン（macOS はキーチェーン、Linux は Secret Service） |
+| 未設定、空、`os` | OS のキーチェーン（macOS はキーチェーン、Linux は Secret Service、Windows は資格情報マネージャー） |
 | `file` | 設定ディレクトリの `key`。キーチェーンのない環境（SSH の接続先、コンテナなど）で使う。以後のコマンドにも毎回付ける |
 
 - macOS で gdrive-cli を入れ直したあとの最初の実行では、キーチェーンのダイアログが出る。**ダイアログに gdrive-cli と書いてあるときだけ「常に許可」を押す。** `security` やほかのプログラムの名前が出たら「拒否」を押す（許可すると、そのプログラムも鍵を読めるようになる）。AI エージェントに使わせる前に、自分で1回 `gdrive-cli status` を実行して許可しておく。
+- Windows では、同じユーザーで動くどのプログラムからも鍵を読める（Linux と同じ。macOS のように gdrive-cli だけに絞れない）。
 - 鍵がない・合わない・キーチェーンが使えないときは、終了コード 3 で止まる。`gdrive-cli login --client-secret <JSON>` で取り込み直す。
 - `logout` は鍵を消さない（`client_secret.enc` が同じ鍵で暗号化されているため）。
 
@@ -131,4 +132,11 @@ Windows では `XDG_CONFIG_HOME` を見ない。見ると、Git Bash と PowerSh
 ```bash
 rm -r <設定ディレクトリの絶対パス>
 security delete-generic-password -s gdrive-cli -a <設定ディレクトリの絶対パス>
+```
+
+Windows の例（PowerShell）。
+
+```powershell
+Remove-Item -Recurse <設定ディレクトリの絶対パス>
+cmdkey /delete:gdrive-cli:<設定ディレクトリの絶対パス>
 ```

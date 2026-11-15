@@ -70,4 +70,5 @@ bd（beads）をステルスモードで使う。`.beads/` は git に入らな�
 
 - `make build` / `make install` / `make lint` / `make fmt` / `make test`
 - `make build` は macOS で hardened runtime を付ける。`go build` のままではキーチェーンを使えない。`make install` は `~/.local/bin` に入れる（`BINDIR` で変えられる）。
+- Windows 向けのコンパイルは `GOOS=windows go build ./...` と `GOOS=windows go vet ./...` で確かめる。Windows の上での振る舞いを確かめるのは利用者。
 - コミット時は lefthook が整形・lint・テスト・trivy・commitlint を走らせる。
