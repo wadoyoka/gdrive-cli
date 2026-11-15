@@ -122,6 +122,7 @@ gdrive-cli ls -l /videos/2026-11                     # 送ったものを確か�
 | 拒否リスト（`policy.toml`） | [docs/policy.md](docs/policy.md) |
 | AI エージェントから使うとき | [docs/ai-agents.md](docs/ai-agents.md) |
 | ブラウザやキーチェーンのない環境 | [docs/headless.md](docs/headless.md) |
+| SSH で Mac に入って、切れたログインを更新する | [docs/faqs/ssh-relogin.md](docs/faqs/ssh-relogin.md) |
 | 既知の制約、作らないもの | [docs/limitations.md](docs/limitations.md) |
 | 開発 | [docs/development.md](docs/development.md) |
 
