@@ -173,8 +173,7 @@ func (u Setup) run(ctx context.Context, in Input) (Result, error) {
 		case domain.KindOf(err) == domain.KindSetup && ctx.Err() == nil:
 			// token.enc は読めるが、Google 側で取り消された・期限が切れたなど。ログインし直す。
 			// 原因（通信の応答など）までは出さず、こちらで書いた文言だけを出す。
-			var de *domain.Error
-			if errors.As(err, &de) {
+			if de, ok := errors.AsType[*domain.Error](err); ok {
 				say("[確認] 保存したログインが使えません（%s）。ログインし直します", de.Message)
 			}
 		default:

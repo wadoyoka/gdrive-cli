@@ -21,8 +21,7 @@ func isRetryable(err error) bool {
 	if isRateLimited(err) {
 		return true
 	}
-	var gerr *googleapi.Error
-	if errors.As(err, &gerr) {
+	if gerr, ok := errors.AsType[*googleapi.Error](err); ok {
 		return gerr.Code >= 500
 	}
 	return isNetworkError(err)

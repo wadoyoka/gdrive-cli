@@ -72,7 +72,7 @@ func setupDeps(t *testing.T, stdin string) (Deps, *bytes.Buffer, *bytes.Buffer, 
 	d.Stdin = strings.NewReader(stdin)
 	d.Interactive = true
 	cloud := &recCloud{}
-	auth := &setupAuth{stubAuth: stubAuth{keyStore: "os"}}
+	auth := &setupAuth{keyStore: "os"}
 	r := usecase.Remote{
 		Open:   func(context.Context) (usecase.Drive, error) { return stubDrive{}, nil },
 		State:  stubState{},

@@ -73,12 +73,10 @@ func mapError(err error) error {
 		return nil
 	}
 	redactURL(err)
-	var de *domain.Error
-	if errors.As(err, &de) {
+	if _, ok := errors.AsType[*domain.Error](err); ok {
 		return err
 	}
-	var rerr *oauth2.RetrieveError
-	if errors.As(err, &rerr) {
+	if _, ok := errors.AsType[*oauth2.RetrieveError](err); ok {
 		return domain.Errorf(domain.KindSetup, "ログインが切れています。`gdrive-cli login` を実行してください").Wrap(err)
 	}
 	var gerr *googleapi.Error
@@ -91,8 +89,7 @@ func mapError(err error) error {
 // redactURL は、err の連なりにある url.Error の URL から、問い合わせ部分を取り除く。
 // 再開可能アップロードの upload_id のように、他人に知られると困る値が入ることがあるため。
 func redactURL(err error) {
-	var uerr *url.Error
-	if errors.As(err, &uerr) {
+	if uerr, ok := errors.AsType[*url.Error](err); ok {
 		if i := strings.IndexByte(uerr.URL, '?'); i >= 0 {
 			uerr.URL = uerr.URL[:i]
 		}

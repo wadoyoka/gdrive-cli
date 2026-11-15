@@ -104,7 +104,7 @@ func (g *GCloud) ActiveAccount(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if l := strings.TrimSpace(line); l != "" {
 			return l, nil
 		}

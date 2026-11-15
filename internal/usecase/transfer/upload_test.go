@@ -80,8 +80,7 @@ func childNamed(t *testing.T, d *usecasetest.Drive, parentID, name string) *doma
 }
 
 func detailsOf(err error) []string {
-	var de *domain.Error
-	if errors.As(err, &de) {
+	if de, ok := errors.AsType[*domain.Error](err); ok {
 		return de.Details
 	}
 	return nil

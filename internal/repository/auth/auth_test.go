@@ -417,7 +417,7 @@ func TestAuthLogin(t *testing.T) {
 		var state string
 		deadline := time.Now().Add(5 * time.Second)
 		for state == "" && time.Now().Before(deadline) {
-			for _, f := range strings.Fields(prompt.String()) {
+			for f := range strings.FieldsSeq(prompt.String()) {
 				if u, err := url.Parse(f); err == nil && u.Query().Get("state") != "" {
 					state = u.Query().Get("state")
 				}
@@ -464,7 +464,7 @@ func TestAuthLogin(t *testing.T) {
 		var state string
 		deadline := time.Now().Add(5 * time.Second)
 		for state == "" && time.Now().Before(deadline) {
-			for _, f := range strings.Fields(prompt.String()) {
+			for f := range strings.FieldsSeq(prompt.String()) {
 				if u, err := url.Parse(f); err == nil && u.Query().Get("state") != "" {
 					state = u.Query().Get("state")
 				}
@@ -512,7 +512,7 @@ func TestAuthLogin(t *testing.T) {
 		var state string
 		deadline := time.Now().Add(5 * time.Second)
 		for state == "" && time.Now().Before(deadline) {
-			for _, f := range strings.Fields(prompt.String()) {
+			for f := range strings.FieldsSeq(prompt.String()) {
 				if u, err := url.Parse(f); err == nil && u.Query().Get("state") != "" {
 					state = u.Query().Get("state")
 				}

@@ -474,8 +474,7 @@ func (s *savingSource) Token() (*oauth2.Token, error) {
 	}
 	if tok.AccessToken != s.last {
 		if err := s.save(tok); err != nil {
-			var de *domain.Error
-			if errors.As(err, &de) {
+			if _, ok := errors.AsType[*domain.Error](err); ok {
 				return nil, err
 			}
 			return nil, domain.Errorf(domain.KindUnexpected, "%s を保存できません", tokenName).Wrap(err)
@@ -499,8 +498,7 @@ func (a *Auth) TokenSource(ctx context.Context) (oauth2.TokenSource, error) {
 	}
 	tok, err := a.loadToken()
 	if err != nil {
-		var de *domain.Error
-		if errors.As(err, &de) {
+		if _, ok := errors.AsType[*domain.Error](err); ok {
 			return nil, err
 		}
 		return nil, domain.Errorf(domain.KindSetup, "%s を読めません。`gdrive-cli login` を実行してください", tokenName).Wrap(err)

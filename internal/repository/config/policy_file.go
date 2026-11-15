@@ -79,8 +79,7 @@ func (f *PolicyFile) Load() (policy.Policy, error) {
 	var doc policyDoc
 	dec := toml.NewDecoder(bytes.NewReader(body)).DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
-		var serr *toml.StrictMissingError
-		if errors.As(err, &serr) {
+		if serr, ok := errors.AsType[*toml.StrictMissingError](err); ok {
 			return policy.Policy{}, unknownKeys(serr)
 		}
 		return policy.Policy{}, unreadable(err)

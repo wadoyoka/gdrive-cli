@@ -91,8 +91,7 @@ func (e *Error) Wrap(err error) *Error {
 
 // KindOf は、err の連なりから *Error を探し、その種類を返す。なければ KindUnexpected。
 func KindOf(err error) ErrorKind {
-	var de *Error
-	if errors.As(err, &de) {
+	if de, ok := errors.AsType[*Error](err); ok {
 		return de.Kind
 	}
 	return KindUnexpected

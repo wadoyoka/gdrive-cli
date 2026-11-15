@@ -289,13 +289,11 @@ func TestResolverRace(t *testing.T) {
 
 		// Act
 		for range 8 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				_, err := r.Resolve(context.Background(), usecasetest.MustPath(t, "/a"))
 				_ = r.Warnings()
 				errs <- err
-			}()
+			})
 		}
 		wg.Wait()
 		close(errs)

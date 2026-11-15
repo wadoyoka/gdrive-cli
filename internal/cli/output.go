@@ -25,8 +25,7 @@ func writeJSON(w io.Writer, v any) error {
 // ただし、本文や補足に同じ文字列が既にあれば、重ねて出さない。
 func writeError(w io.Writer, asJSON bool, err error) {
 	body := errorBody{Kind: domain.KindOf(err).String(), Message: err.Error(), Details: []string{}}
-	var de *domain.Error
-	if errors.As(err, &de) {
+	if de, ok := errors.AsType[*domain.Error](err); ok {
 		body.Message = de.Message
 		body.Details = append(body.Details, de.Details...)
 		if de.Err != nil {

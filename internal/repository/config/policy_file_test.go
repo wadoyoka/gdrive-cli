@@ -51,11 +51,11 @@ func TestPolicyFile(t *testing.T) {
 			wantDeny []string
 		}{
 			{"ファイルがなければ準備が必要", nil, domain.KindSetup, true, nil},
-			{"既定の内容なら拒否は空", ptr(policy.DefaultTOML), 0, false, nil},
-			{"deny を読める", ptr(`deny = ["mv"]`), 0, false, []string{"mv"}},
-			{"知らないキーは拒否", ptr(`denny = []`), domain.KindDenied, true, nil},
-			{"TOML として壊れていれば拒否", ptr(`deny = [`), domain.KindDenied, true, nil},
-			{"知らないコマンド名は拒否", ptr(`deny = ["uplaod"]`), domain.KindDenied, true, nil},
+			{"既定の内容なら拒否は空", new(policy.DefaultTOML), 0, false, nil},
+			{"deny を読める", new(`deny = ["mv"]`), 0, false, []string{"mv"}},
+			{"知らないキーは拒否", new(`denny = []`), domain.KindDenied, true, nil},
+			{"TOML として壊れていれば拒否", new(`deny = [`), domain.KindDenied, true, nil},
+			{"知らないコマンド名は拒否", new(`deny = ["uplaod"]`), domain.KindDenied, true, nil},
 		}
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
@@ -115,5 +115,3 @@ func TestPolicyFileUnknownKeys(t *testing.T) {
 		}
 	})
 }
-
-func ptr(s string) *string { return &s }
