@@ -78,11 +78,24 @@ type fakeGCloud struct {
 	stdinFile string
 }
 
+// wrapperDir は、包みのファイルを置くディレクトリを作る。t.TempDir() はテストの名前（= を含みうる）から
+// パスを作り、cmd.exe は引用符のないコマンド名を = で切るので、名前に左右されない場所に作る。
+func wrapperDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "fake-gcloud-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func newFakeGCloud(t *testing.T, stdout, stderr string, exit string) (*GCloud, *fakeGCloud) {
 	t.Helper()
 	dir := t.TempDir()
-	bin := writeGCloudWrapper(t, dir)
-	f := &fakeGCloud{dir: dir, argsFile: filepath.Join(dir, "args.txt"), stdinFile: filepath.Join(dir, "stdin.txt")}
+	wdir := wrapperDir(t)
+	bin := writeGCloudWrapper(t, wdir)
+	f := &fakeGCloud{dir: wdir, argsFile: filepath.Join(dir, "args.txt"), stdinFile: filepath.Join(dir, "stdin.txt")}
 	t.Setenv("FAKE_GCLOUD_ARGS", f.argsFile)
 	t.Setenv("FAKE_GCLOUD_STDIN", f.stdinFile)
 	t.Setenv("FAKE_GCLOUD_STDOUT", stdout)
@@ -324,7 +337,7 @@ func TestGCloudキャンセル(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skip("Windows では孫プロセスの作り方が違うので試さない")
 		}
-		dir := t.TempDir()
+		dir := wrapperDir(t)
 		script := "#!/bin/sh\n/bin/sleep 20 &\n/bin/sleep 20\n"
 		bin := filepath.Join(dir, "gcloud")
 		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil { //nolint:gosec // テスト用の実行ファイル
