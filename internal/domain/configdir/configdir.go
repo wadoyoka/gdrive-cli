@@ -14,3 +14,12 @@ func Resolve(getenv func(string) string, home string) string {
 	}
 	return filepath.Join(home, ".config", "gdrive-cli")
 }
+
+// ResolveWindows は、Windows の設定ディレクトリを決める。
+// GDRIVE_CLI_CONFIG_DIR、%LOCALAPPDATA%\gdrive-cli の順。XDG_CONFIG_HOME は見ない。
+func ResolveWindows(getenv func(string) string) string {
+	if d := getenv("GDRIVE_CLI_CONFIG_DIR"); d != "" {
+		return d
+	}
+	return filepath.Join(getenv("LOCALAPPDATA"), "gdrive-cli")
+}

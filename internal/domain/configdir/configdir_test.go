@@ -1,6 +1,9 @@
 package configdir
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestResolve(t *testing.T) {
 	cases := []struct {
@@ -20,6 +23,35 @@ func TestResolve(t *testing.T) {
 
 			// Act
 			got := Resolve(getenv, "/h")
+
+			// Assert
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestResolveWindows(t *testing.T) {
+	const local = `C:\Users\u\AppData\Local`
+	const localJa = `C:\Users\山田 太郎\AppData\Local`
+	cases := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"LOCALAPPDATA の下", map[string]string{"LOCALAPPDATA": local}, filepath.Join(local, "gdrive-cli")},
+		{"XDG_CONFIG_HOME があっても LOCALAPPDATA の下", map[string]string{"LOCALAPPDATA": local, "XDG_CONFIG_HOME": "/x"}, filepath.Join(local, "gdrive-cli")},
+		{"GDRIVE_CLI_CONFIG_DIR があればそれ", map[string]string{"LOCALAPPDATA": local, "GDRIVE_CLI_CONFIG_DIR": `D:\cfg`}, `D:\cfg`},
+		{"空白と日本語を含む LOCALAPPDATA", map[string]string{"LOCALAPPDATA": localJa}, filepath.Join(localJa, "gdrive-cli")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			getenv := func(k string) string { return c.vars[k] }
+
+			// Act
+			got := ResolveWindows(getenv)
 
 			// Assert
 			if got != c.want {

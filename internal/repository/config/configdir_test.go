@@ -38,13 +38,13 @@ func TestDefaultDir(t *testing.T) {
 		// Arrange
 		t.Setenv("HOME", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
-		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "/tmp/gdrive-cli-test")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", filepath.Join("tmp", "gdrive-cli-test"))
 
 		// Act
-		got, err := DefaultDir()
+		got, err := defaultDir("linux")
 
 		// Assert
-		if err != nil || got != "/tmp/gdrive-cli-test" {
+		if err != nil || got != filepath.Join("tmp", "gdrive-cli-test") {
 			t.Errorf("got = %q, err = %v", got, err)
 		}
 	})
@@ -52,14 +52,14 @@ func TestDefaultDir(t *testing.T) {
 	t.Run("XDG_CONFIG_HOME があれば HOME がなくても決まる", func(t *testing.T) {
 		// Arrange
 		t.Setenv("HOME", "")
-		t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join("tmp", "xdg"))
 		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
 
 		// Act
-		got, err := DefaultDir()
+		got, err := defaultDir("linux")
 
 		// Assert
-		if err != nil || got != filepath.Join("/tmp/xdg", "gdrive-cli") {
+		if err != nil || got != filepath.Join("tmp", "xdg", "gdrive-cli") {
 			t.Errorf("got = %q, err = %v", got, err)
 		}
 	})
@@ -71,11 +71,55 @@ func TestDefaultDir(t *testing.T) {
 		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
 
 		// Act
-		_, err := DefaultDir()
+		_, err := defaultDir("linux")
 
 		// Assert
 		if err == nil {
 			t.Error("err = nil")
+		}
+	})
+
+	t.Run("Windows では LOCALAPPDATA の下で、XDG_CONFIG_HOME を見ない", func(t *testing.T) {
+		// Arrange
+		local := filepath.Join("local", "app")
+		t.Setenv("LOCALAPPDATA", local)
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join("tmp", "xdg"))
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
+
+		// Act
+		got, err := defaultDir("windows")
+
+		// Assert
+		if err != nil || got != filepath.Join(local, "gdrive-cli") {
+			t.Errorf("got = %q, err = %v", got, err)
+		}
+	})
+
+	t.Run("Windows で LOCALAPPDATA も GDRIVE_CLI_CONFIG_DIR も空ならエラー", func(t *testing.T) {
+		// Arrange
+		t.Setenv("LOCALAPPDATA", "")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", "")
+
+		// Act
+		_, err := defaultDir("windows")
+
+		// Assert
+		if err == nil {
+			t.Error("err = nil")
+		}
+	})
+
+	t.Run("Windows で GDRIVE_CLI_CONFIG_DIR があれば LOCALAPPDATA が空でも決まる", func(t *testing.T) {
+		// Arrange
+		t.Setenv("LOCALAPPDATA", "")
+		t.Setenv("GDRIVE_CLI_CONFIG_DIR", filepath.Join("tmp", "cfg"))
+
+		// Act
+		got, err := defaultDir("windows")
+
+		// Assert
+		if err != nil || got != filepath.Join("tmp", "cfg") {
+			t.Errorf("got = %q, err = %v", got, err)
 		}
 	})
 }

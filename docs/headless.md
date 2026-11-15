@@ -24,7 +24,7 @@ GDRIVE_CLI_KEYRING=file gdrive-cli login --no-browser --client-secret <JSON>
 
 ## 設定ディレクトリのコピー
 
-ログイン済みの設定ディレクトリ（`~/.config/gdrive-cli/`）を別の環境へコピーし、`GDRIVE_CLI_CONFIG_DIR` で指定する。
+ログイン済みの設定ディレクトリ（`~/.config/gdrive-cli/`。Windows では `%LOCALAPPDATA%\gdrive-cli\`）を別の環境へコピーし、`GDRIVE_CLI_CONFIG_DIR` で指定する。
 
 - 鍵を OS のキーチェーンに置いている場合、設定ディレクトリをコピーしても、コピー先には鍵がないので使えない。これは暗号化の目的どおりの動き。
 - コピーして使うなら、コピー元でも `GDRIVE_CLI_KEYRING=file` でログインし、`key` ごとコピーする。コピー先でも `GDRIVE_CLI_KEYRING=file` を付ける。

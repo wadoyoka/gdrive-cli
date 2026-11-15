@@ -94,7 +94,14 @@ gdrive-cli login --client-secret ~/Downloads/client_secret_xxx.json
 2. `$XDG_CONFIG_HOME/gdrive-cli`
 3. `~/.config/gdrive-cli`
 
-ディレクトリの権限は 0700、中のファイルは 0600。
+Windows では、次の順で決まる。
+
+1. 環境変数 `GDRIVE_CLI_CONFIG_DIR`
+2. `%LOCALAPPDATA%\gdrive-cli`
+
+Windows では `XDG_CONFIG_HOME` を見ない。見ると、Git Bash と PowerShell で設定ディレクトリが分かれてしまう。`%APPDATA%` ではなく `%LOCALAPPDATA%` にするのは、鍵がその PC にしか残らないので、ファイルも PC の外へ移さないため。
+
+ディレクトリの権限は 0700、中のファイルは 0600。Windows では数字は効かず、`%LOCALAPPDATA%` のフォルダの ACL で守られる。`GDRIVE_CLI_CONFIG_DIR` でほかの場所にするときは、そのフォルダの ACL に注意する。
 
 | ファイル | 作るもの | 中身 |
 |---|---|---|

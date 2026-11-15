@@ -5,13 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/wadoyoka/gdrive-cli/internal/domain/configdir"
 )
 
 // DefaultDir は、環境から設定ディレクトリの場所を決める。
-// ホームディレクトリは、GDRIVE_CLI_CONFIG_DIR と XDG_CONFIG_HOME がどちらも空のときだけ調べる。
-func DefaultDir() (string, error) {
+func DefaultDir() (string, error) { return defaultDir(runtime.GOOS) }
+
+// defaultDir は、goos に合わせて設定ディレクトリの場所を決める。
+// Windows 以外では、ホームディレクトリは GDRIVE_CLI_CONFIG_DIR と XDG_CONFIG_HOME がどちらも空のときだけ調べる。
+// Windows では LOCALAPPDATA を読む（os.UserConfigDir は使わない）。
+func defaultDir(goos string) (string, error) {
+	if goos == "windows" {
+		if os.Getenv("GDRIVE_CLI_CONFIG_DIR") == "" && os.Getenv("LOCALAPPDATA") == "" {
+			return "", errors.New("LOCALAPPDATA が空なので設定ディレクトリを決められません。GDRIVE_CLI_CONFIG_DIR を指定してください")
+		}
+		return configdir.ResolveWindows(os.Getenv), nil
+	}
 	home := ""
 	if os.Getenv("GDRIVE_CLI_CONFIG_DIR") == "" && os.Getenv("XDG_CONFIG_HOME") == "" {
 		h, err := os.UserHomeDir()
