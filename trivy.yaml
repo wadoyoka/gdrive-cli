@@ -16,3 +16,5 @@ severity:
   - HIGH
   - CRITICAL
 exit-code: 1
+# 直った版がなく、このリポジトリでは突かれない脆弱性を、期限つきで除く。
+ignorefile: .trivyignore.yaml
