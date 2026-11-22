@@ -20,7 +20,7 @@ schedule で動くワークフローと `.github/renovate.json5` は、既定の
 trivy fs .   # 依存の既知の脆弱性（HIGH 以上）と、秘密情報の混入を調べる
 ```
 
-設定は `trivy.yaml`（対象・重大度・除外するディレクトリ）と `trivy-secret.yaml`（Google の OAuth のクライアントシークレットとリフレッシュトークンの規則）にある。lefthook、`ci.yml`、`trivy-daily.yml` が同じ設定で動かす。
+設定は `trivy.yaml`（対象・重大度・除外するディレクトリ）、`trivy-secret.yaml`（Google の OAuth のクライアントシークレットとリフレッシュトークンの規則）、`.trivyignore.yaml`（期限つきで除く脆弱性。「[直った版がない脆弱性](#直った版がない脆弱性)」）にある。lefthook、`ci.yml`、`trivy-daily.yml` が同じ設定で動かす。
 
 `trivy-daily.yml` は、毎日 9:00（JST）に既定のブランチを調べ、結果を Slack（Secrets の `SLACK_WEBHOOK_URL`）に送る。見つかったときは、送ったあとでワークフローを失敗させ、Actions の画面でも赤く見えるようにする。
 
@@ -35,6 +35,16 @@ trivy fs .   # 依存の既知の脆弱性（HIGH 以上）と、秘密情報の
 - PR は Renovate と同じ GitHub App のトークンで作る（「[最初の準備](#最初の準備)」）。トークンの権限は、Contents と Pull requests の書き込みだけに絞る。
 - 外のアクションは使わず、`gh` で GitHub の API を直接呼んで、App の署名付きコミットと PR を作る。
 - PR ができたときと、失敗したときに Slack に知らせる。
+
+### 直った版がない脆弱性
+
+上流に直った版がなく（trivy の Status が `affected`、Fixed Version が空）、このリポジトリでは突かれない脆弱性は、`.trivyignore.yaml` に書いて期限つきで除く。突かれうるものは除かず、依存を外すか置き換える。
+
+- `purls` で版まで絞る。依存が別の版に変わったら、もう一度見つかる。
+- `expired_at` を 2 週間ほど先にする。過ぎるとまた見つかって trivy-daily が赤くなるので、直った版が出たかを見直し、まだなら理由を確かめてから延ばす。
+- 除いている間は `fix` ジョブも見ないので、直った版が出ても自動では上がらない。期限が過ぎて見つかったときに `fix` ジョブが上げる。
+- `statement` に突かれない理由を書く。
+- 除いたものは `trivy fs --show-suppressed .` で見られる。
 
 ## 依存の更新（Renovate）
 

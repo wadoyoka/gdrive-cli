@@ -1,6 +1,6 @@
 module github.com/wadoyoka/gdrive-cli
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/pelletier/go-toml/v2 v2.4.3
@@ -11,7 +11,7 @@ require (
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0
 	golang.org/x/tools v0.52.0
-	google.golang.org/api v0.312.0
+	google.golang.org/api v0.315.0
 )
 
 require (

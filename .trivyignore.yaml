@@ -1,0 +1,17 @@
+# trivy が見つけても、いまは直せず、このリポジトリでは突かれない脆弱性を並べる（trivy.yaml の ignorefile）。
+# 決まり（docs/ci.md の「直った版がない脆弱性」）:
+# - 直った版が出ていないものだけを書く。直った版があるなら、上げる（trivy-daily.yml の fix ジョブ）。
+# - purls で版まで絞る。依存が別の版に変わったら、もう一度見つかるようにする。
+# - expired_at（2 週間ほど先）を必ず書く。過ぎるとまた見つかるので、直った版が出たかを見直す。
+#   ここにある間は fix ジョブも見ないので、直った版が出ても自動では上がらない。
+# - statement に、突かれない理由を書く。
+vulnerabilities:
+  # picomatch の ReDoS。+(*) のような glob の「パターン」を攻撃者が渡せるときに、イベントループが止まる。
+  # 上流の修正（micromatch/picomatch#194）はまだ入っておらず、4.0.7（最新）まで影響を受ける。
+  - id: CVE-2026-112366
+    purls:
+      - pkg:npm/picomatch@2.3.2
+      - pkg:npm/picomatch@4.0.7
+    expired_at: 2026-12-02
+    # 日本語の文を折り返すと、つなぎ目に空白が入るので 1 行で書く。
+    statement: "semantic-release（開発用の依存）からだけ入り、release.yml でだけ動く。パターンは release.config.mjs の releaseRules・commit-analyzer の既定の規則・@semantic-release/github の assets（設定していない）から来るもので、外から渡されない。"
