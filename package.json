@@ -10,5 +10,5 @@
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "semantic-release": "^25.0.9"
   },
-  "packageManager": "pnpm@12.21.0"
+  "packageManager": "pnpm@12.23.0"
 }
